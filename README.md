@@ -8,12 +8,31 @@
 - 手动导入 + 实时目录监听
 - SHA256 + pHash 去重
 - 本地 OCR + 可配置视觉模型分析
-- 人脸聚类、人物库、人物参考图上传
-- 删除人物、删除单张人物参考图
+- 人物库、人物参考图上传、删除人物、删除单张参考图
 - 自然语言检索、标签检索、以图搜图、按人物图检索
 - 人脸簇独立管理页
 - 监听任务队列化与状态展示
 - 图片详情抽屉、重分析、相似图查找
+
+## 当前人脸方案
+
+系统已经从原来的 OpenCV 手工特征方案升级为：
+
+- `SCRFD` 人脸检测
+- `AdaFace` 人脸 embedding
+
+默认本地部署配置为：
+
+- 检测模型：`buffalo_sc / det_500m.onnx`
+- 识别模型：`minchul/cvlface_adaface_ir50_webface4m`
+
+可通过环境变量切换到更强的检测包，例如：
+
+- `buffalo_l / det_10g.onnx`
+
+这次改造的专用实施说明和 TODO 在：
+
+- [docs/scrfd-adaface-readme.md](./docs/scrfd-adaface-readme.md)
 
 ## 技术栈
 
@@ -22,8 +41,8 @@
 - 图片存储：本地文件系统
 - OCR：`RapidOCR`
 - 视觉分析：`OpenAI-compatible` 多模态接口
-- 人脸识别：`OpenCV Haar Cascade + 对齐后的人脸多特征描述子`
-- 向量检索：本地轻量多模态向量
+- 人脸检测：`SCRFD`
+- 人脸识别：`AdaFace`
 - 实时监听：`watchdog`
 - 微信 / QQ 接入：用户授权的本地目录导入与监听
 
@@ -65,39 +84,50 @@
 - 监听事件先进入队列，再由后台 worker 顺序处理
 - 前端可看到来源级别的排队数量、处理状态和最近处理时间
 
-## 人物识别算法说明
+## 人脸模型说明
 
-这次版本把原来过于简单的“灰度缩放 + 直方图”方案升级成了更稳定的人脸描述流程：
+### 检测
 
-1. 使用 `Haar Cascade` 检测人脸
-2. 尝试用眼睛检测做轻量对齐
-3. 对人脸做 `CLAHE` 对比度增强
-4. 组合梯度方向直方图、局部二值模式（LBP）、低频 DCT 特征和对称性特征
-5. 以归一化向量做聚类和人物匹配
-6. 上传新参考图后，结合人物中心和样本相似度重新绑定人脸簇
+- 通过官方 InsightFace 发布的模型包下载 `SCRFD` 检测模型
+- 默认使用 `buffalo_sc` 中的 `det_500m.onnx`
+- 支持通过配置切换到 `buffalo_l` 中的 `det_10g.onnx`
 
-另外，启动时如果检测到数据库里还保留旧版人脸 embedding，会自动做一次索引升级，避免旧数据和新算法不兼容。
+### 识别
+
+- 通过官方 Hugging Face 仓库下载 `AdaFace` 预训练权重
+- 默认使用 `minchul/cvlface_adaface_ir50_webface4m`
+- 输出归一化后的 `512` 维 embedding
+
+### 数据兼容
+
+- 启动时会检测数据库中是否仍有旧版人脸 embedding
+- 如果检测到旧数据，会自动重建人物样本、人脸簇和图片索引
 
 ## 项目结构
 
 ```text
 docs/
   architecture.md
+  scrfd-adaface-readme.md
   windows-build-tools.md
 backend/
   app/
+    adaface_model.py
     ai.py
     config.py
     connectors.py
     database.py
     embeddings.py
+    face_alignment.py
     face_clustering.py
+    face_engine.py
     import_pipeline.py
     main.py
     models.py
     people.py
     repository.py
     schemas.py
+    scrfd_detector.py
     search_service.py
     serializers.py
     watcher.py
@@ -225,17 +255,42 @@ AI_VISION_MODEL=
 AI_VISION_TIMEOUT_SECONDS=90
 SEARCH_UPLOAD_ROOT=D:/code-repos/yuqing/data/search-uploads
 PERSON_LIBRARY_ROOT=D:/code-repos/yuqing/data/person-library
-WATCHER_ENABLED=true
-WATCHER_RECURSIVE=true
-WATCHER_DEBOUNCE_SECONDS=3
-FACE_CLUSTER_SIMILARITY_THRESHOLD=0.86
-PERSON_RECOGNITION_SIMILARITY_THRESHOLD=0.84
+FACE_MODEL_ROOT=D:/code-repos/yuqing/data/face-models
+FACE_DETECTION_PACK_NAME=buffalo_sc
+FACE_DETECTION_MODEL_FILENAME=det_500m.onnx
+FACE_DETECTION_INPUT_SIZE=640
+FACE_DETECTION_CONFIDENCE_THRESHOLD=0.45
+FACE_DETECTION_NMS_THRESHOLD=0.4
+FACE_DETECTION_MAX_FACES=6
+FACE_RECOGNITION_REPO_ID=minchul/cvlface_adaface_ir50_webface4m
+FACE_RECOGNITION_MODEL_FILENAME=model.pt
+FACE_RECOGNITION_DEVICE=cpu
+FACE_RECOGNITION_BATCH_SIZE=8
+FACE_CLUSTER_SIMILARITY_THRESHOLD=0.5
+PERSON_RECOGNITION_SIMILARITY_THRESHOLD=0.52
 ```
 
-如果你希望人物识别更保守，可以适当调高：
+如果你希望更保守或更激进，可以重点调这几项：
 
+- `FACE_DETECTION_CONFIDENCE_THRESHOLD`
 - `FACE_CLUSTER_SIMILARITY_THRESHOLD`
 - `PERSON_RECOGNITION_SIMILARITY_THRESHOLD`
+
+## 依赖说明
+
+后端依赖里已经包含：
+
+- `huggingface_hub`
+- `torch`
+- `torchvision`
+
+`requirements.txt` 已经加入 PyTorch CPU 源，所以直接执行：
+
+```powershell
+pip install -r backend\requirements.txt
+```
+
+即可完成当前默认方案的依赖安装。
 
 ## 已有 API
 
@@ -303,22 +358,30 @@ PERSON_RECOGNITION_SIMILARITY_THRESHOLD=0.84
 - `python -m compileall backend/app`
 - `npm run build`
 - `FastAPI TestClient` 烟测
-  - 健康检查
+  - 启动时旧 embedding 自动升级
   - 按人物图检索
   - 新建人物
   - 上传参考图
   - 删除单张参考图
   - 删除人物
+  - 人名搜索
+
+## 许可证与使用边界
+
+- `SCRFD` 检测模型通过官方 InsightFace 模型包下载
+- `AdaFace` 权重通过官方 Hugging Face 仓库下载
+- 如果要做商业化发布，建议你再次确认对应模型、训练数据集和权重的实际授权边界
 
 ## 已知限制
 
-- 当前仍是工程可落地版，不是深度学习级人脸识别方案
+- 当前仍是工程可落地版，不是完整商用级人脸平台
 - 微信 / QQ 目前采用本地目录导入与监听，不涉及逆向协议登录
+- 首次下载模型和首次索引升级耗时会明显高于旧版 OpenCV 手工特征方案
 - 大规模图片库下，人物索引和搜索还需要进一步做批处理与异步任务化
 
 ## 下一步建议
 
-- 替换为 `InsightFace / FaceNet` 等更强的人脸模型
+- 支持 `IR101` 与 `det_10g` 的前端切换
 - 为人物样本增加裁剪与主脸确认
 - 把全库重分析做成后台任务
 - 引入更强的图片向量模型，如 `CLIP / SigLIP`

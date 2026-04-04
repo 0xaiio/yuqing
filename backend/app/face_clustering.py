@@ -3,18 +3,18 @@ import json
 from pathlib import Path
 import uuid
 
-import cv2
 import numpy as np
 from sqlmodel import Session
 
 from app.config import Settings, get_settings
 from app.embeddings import VectorEmbeddingService, cosine_similarity, deserialize_vector, serialize_vector
+from app.face_engine import DeepFaceEngine
 from app.models import FaceCluster, PersonProfile
 from app.repository import GalleryRepository
 from app.schemas import decode_json_list
 
-FACE_EMBEDDING_DIM = 482
-PERSON_MATCH_MARGIN = 0.02
+FACE_EMBEDDING_DIM = 512
+PERSON_MATCH_MARGIN = 0.04
 
 
 @dataclass
@@ -29,13 +29,7 @@ class FaceClusteringService:
         self.session = session
         self.repository = GalleryRepository(session)
         self.settings = settings or get_settings()
-        self._cascade = cv2.CascadeClassifier(
-            str(Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml")
-        )
-        self._eye_cascade = cv2.CascadeClassifier(
-            str(Path(cv2.data.haarcascades) / "haarcascade_eye_tree_eyeglasses.xml")
-        )
-        self._clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        self.engine = DeepFaceEngine(self.settings)
 
     def analyze_photo(self, photo_path: Path, example_photo_id: int | None = None) -> FaceClusteringResult:
         embeddings = self.extract_face_embeddings(photo_path)
@@ -83,8 +77,7 @@ class FaceClusteringService:
             and cluster.person_profile_id
             and (person := people.get(cluster.person_profile_id))
         )
-        deduped_names = list(dict.fromkeys(names))
-        return FaceClusteringResult(labels=labels, names=deduped_names, face_count=len(labels))
+        return FaceClusteringResult(labels=labels, names=list(dict.fromkeys(names)), face_count=len(labels))
 
     def rename_cluster(self, label: str, display_name: str | None) -> FaceCluster | None:
         cluster = self.repository.get_face_cluster_by_label(label)
@@ -133,7 +126,7 @@ class FaceClusteringService:
         return updated_clusters
 
     def extract_face_embeddings(self, photo_path: Path) -> list[list[float]]:
-        return self._extract_face_embeddings(photo_path)
+        return self.engine.extract_face_embeddings(photo_path, max_faces=self.settings.face_detection_max_faces)
 
     def rank_person_profiles(
         self,
@@ -146,7 +139,6 @@ class FaceClusteringService:
             if score <= 0:
                 continue
             scores.append((person, score))
-
         scores.sort(key=lambda item: item[1], reverse=True)
         return scores[:limit]
 
@@ -159,8 +151,7 @@ class FaceClusteringService:
     def rebuild_face_index(self) -> None:
         self._refresh_person_sample_embeddings()
 
-        existing_clusters = self.repository.list_face_clusters(limit=5000)
-        for cluster in existing_clusters:
+        for cluster in self.repository.list_face_clusters(limit=5000):
             self.repository.delete_face_cluster(cluster)
 
         person_name_keys = {
@@ -239,7 +230,7 @@ class FaceClusteringService:
             previous_centroid = np.asarray(deserialize_vector(best_cluster.centroid), dtype=np.float32)
             next_centroid = np.asarray(embedding, dtype=np.float32)
             if previous_centroid.size == next_centroid.size and previous_centroid.size > 0:
-                merged = previous_centroid * 0.65 + next_centroid * 0.35
+                merged = previous_centroid * 0.7 + next_centroid * 0.3
                 best_cluster.centroid = serialize_vector(self._normalize(merged).tolist())
             if best_cluster.example_photo_id is None and example_photo_id is not None:
                 best_cluster.example_photo_id = example_photo_id
@@ -263,8 +254,7 @@ class FaceClusteringService:
                 second_best = best_score
                 best_score = score
                 best_match = person
-                continue
-            if score > second_best:
+            elif score > second_best:
                 second_best = score
 
         if best_match is None:
@@ -294,263 +284,15 @@ class FaceClusteringService:
         ranked_scores = sorted(sample_scores, reverse=True)
         best_sample_score = ranked_scores[0]
         sample_mean = sum(ranked_scores[: min(3, len(ranked_scores))]) / min(3, len(ranked_scores))
-        return max(centroid_score, 0.5 * best_sample_score + 0.3 * sample_mean + 0.2 * centroid_score)
-
-    def _extract_face_embeddings(self, photo_path: Path) -> list[list[float]]:
-        image = cv2.imread(str(photo_path))
-        if image is None:
-            return []
-
-        grayscale = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        detections = self._detect_faces(grayscale)
-        if len(detections) == 0:
-            return []
-
-        embeddings: list[list[float]] = []
-        for x, y, width, height in self._rank_detections(detections, grayscale.shape)[:6]:
-            face_crop = self._extract_face_crop(grayscale, x, y, width, height)
-            if face_crop.size == 0:
-                continue
-            embeddings.append(self._face_embedding(face_crop))
-        return embeddings
-
-    def _detect_faces(self, grayscale: np.ndarray) -> list[tuple[int, int, int, int]]:
-        min_face = max(36, min(grayscale.shape[:2]) // 12)
-        for candidate in (grayscale, self._clahe.apply(grayscale)):
-            detections = self._cascade.detectMultiScale(
-                candidate,
-                scaleFactor=1.08,
-                minNeighbors=5,
-                minSize=(min_face, min_face),
-            )
-            if len(detections) > 0:
-                return [tuple(map(int, detection)) for detection in detections]
-        return []
-
-    def _rank_detections(
-        self,
-        detections: list[tuple[int, int, int, int]],
-        image_shape: tuple[int, int],
-    ) -> list[tuple[int, int, int, int]]:
-        image_height, image_width = image_shape[:2]
-        center_x = image_width / 2.0
-        center_y = image_height / 2.0
-
-        def rank_key(item: tuple[int, int, int, int]) -> float:
-            x, y, width, height = item
-            area = float(width * height)
-            face_center_x = x + width / 2.0
-            face_center_y = y + height / 2.0
-            normalized_distance = (
-                ((face_center_x - center_x) / max(image_width, 1)) ** 2
-                + ((face_center_y - center_y) / max(image_height, 1)) ** 2
-            )
-            position_bonus = max(0.55, 1.15 - normalized_distance * 2.1)
-            return area * position_bonus
-
-        return sorted(detections, key=rank_key, reverse=True)
-
-    def _extract_face_crop(
-        self,
-        grayscale: np.ndarray,
-        x: int,
-        y: int,
-        width: int,
-        height: int,
-    ) -> np.ndarray:
-        pad_x = int(width * 0.18)
-        pad_top = int(height * 0.24)
-        pad_bottom = int(height * 0.14)
-
-        x1 = max(0, x - pad_x)
-        y1 = max(0, y - pad_top)
-        x2 = min(grayscale.shape[1], x + width + pad_x)
-        y2 = min(grayscale.shape[0], y + height + pad_bottom)
-
-        face_crop = grayscale[y1:y2, x1:x2]
-        if face_crop.size == 0:
-            return face_crop
-        return self._align_face(face_crop)
-
-    def _align_face(self, face_crop: np.ndarray) -> np.ndarray:
-        if face_crop.size == 0:
-            return face_crop
-
-        enhanced = self._clahe.apply(face_crop)
-        upper_half = enhanced[: max(1, enhanced.shape[0] // 2), :]
-        eyes = self._eye_cascade.detectMultiScale(
-            upper_half,
-            scaleFactor=1.08,
-            minNeighbors=4,
-            minSize=(10, 10),
-        )
-        if len(eyes) < 2:
-            return enhanced
-
-        best_pair: tuple[tuple[float, float], tuple[float, float]] | None = None
-        best_score = -1.0
-        eye_centers = [
-            (eye_x + eye_width / 2.0, eye_y + eye_height / 2.0)
-            for eye_x, eye_y, eye_width, eye_height in eyes
-        ]
-        for left_eye in eye_centers:
-            for right_eye in eye_centers:
-                if right_eye[0] <= left_eye[0]:
-                    continue
-                horizontal_distance = right_eye[0] - left_eye[0]
-                vertical_offset = abs(right_eye[1] - left_eye[1])
-                candidate_score = horizontal_distance - vertical_offset * 2.2
-                if candidate_score > best_score:
-                    best_score = candidate_score
-                    best_pair = (left_eye, right_eye)
-
-        if best_pair is None:
-            return enhanced
-
-        left_eye, right_eye = best_pair
-        angle = np.degrees(np.arctan2(right_eye[1] - left_eye[1], right_eye[0] - left_eye[0]))
-        rotation = cv2.getRotationMatrix2D(
-            (enhanced.shape[1] / 2.0, enhanced.shape[0] / 2.0),
-            -angle,
-            1.0,
-        )
-        return cv2.warpAffine(
-            enhanced,
-            rotation,
-            (enhanced.shape[1], enhanced.shape[0]),
-            flags=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_REPLICATE,
-        )
-
-    def _face_embedding(self, face_crop: np.ndarray) -> list[float]:
-        prepared = self._prepare_face(face_crop)
-        intensity_histogram = self._intensity_histogram(prepared)
-        gradient_descriptor = self._gradient_descriptor(prepared)
-        lbp_descriptor = self._lbp_descriptor(prepared)
-        dct_descriptor = self._dct_descriptor(prepared)
-        symmetry_descriptor = self._symmetry_descriptor(prepared)
-
-        embedding = np.concatenate(
-            [
-                self._normalize(intensity_histogram) * 0.08,
-                self._normalize(gradient_descriptor) * 0.32,
-                self._normalize(lbp_descriptor) * 0.38,
-                self._normalize(dct_descriptor) * 0.16,
-                self._normalize(symmetry_descriptor) * 0.06,
-            ],
-            dtype=np.float32,
-        )
-        return self._normalize(embedding).tolist()
-
-    def _prepare_face(self, face_crop: np.ndarray) -> np.ndarray:
-        enhanced = self._clahe.apply(face_crop)
-        blurred = cv2.GaussianBlur(enhanced, (3, 3), 0)
-        return cv2.resize(blurred, (96, 96), interpolation=cv2.INTER_AREA)
-
-    @staticmethod
-    def _intensity_histogram(face_crop: np.ndarray) -> np.ndarray:
-        histogram, _ = np.histogram(face_crop, bins=16, range=(0, 256), density=True)
-        return histogram.astype(np.float32)
-
-    def _gradient_descriptor(self, face_crop: np.ndarray) -> np.ndarray:
-        resized = cv2.resize(face_crop, (64, 64), interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
-        gradient_x = cv2.Sobel(resized, cv2.CV_32F, 1, 0, ksize=3)
-        gradient_y = cv2.Sobel(resized, cv2.CV_32F, 0, 1, ksize=3)
-        magnitude, angle = cv2.cartToPolar(gradient_x, gradient_y, angleInDegrees=True)
-        angle = np.mod(angle, 180.0)
-
-        cell_size = 16
-        bins = 9
-        features: list[np.ndarray] = []
-        for row in range(4):
-            for column in range(4):
-                y1 = row * cell_size
-                y2 = y1 + cell_size
-                x1 = column * cell_size
-                x2 = x1 + cell_size
-                cell_magnitude = magnitude[y1:y2, x1:x2].flatten()
-                cell_angle = angle[y1:y2, x1:x2].flatten()
-                histogram, _ = np.histogram(
-                    cell_angle,
-                    bins=bins,
-                    range=(0, 180),
-                    weights=cell_magnitude,
-                    density=False,
-                )
-                features.append(histogram.astype(np.float32))
-
-        return np.concatenate(features, dtype=np.float32)
-
-    def _lbp_descriptor(self, face_crop: np.ndarray) -> np.ndarray:
-        resized = cv2.resize(face_crop, (64, 64), interpolation=cv2.INTER_AREA)
-        center = resized[1:-1, 1:-1]
-        lbp = np.zeros(center.shape, dtype=np.uint8)
-        neighbors = [
-            (-1, -1),
-            (-1, 0),
-            (-1, 1),
-            (0, 1),
-            (1, 1),
-            (1, 0),
-            (1, -1),
-            (0, -1),
-        ]
-        for bit, (offset_y, offset_x) in enumerate(neighbors):
-            lbp |= (
-                (
-                    resized[
-                        1 + offset_y : 1 + offset_y + center.shape[0],
-                        1 + offset_x : 1 + offset_x + center.shape[1],
-                    ]
-                    >= center
-                ).astype(np.uint8)
-                << bit
-            )
-
-        reduced = (lbp >> 4).astype(np.int32)
-        trimmed = reduced[:60, :60]
-        cell_size = 15
-        features: list[np.ndarray] = []
-        for row in range(4):
-            for column in range(4):
-                y1 = row * cell_size
-                y2 = y1 + cell_size
-                x1 = column * cell_size
-                x2 = x1 + cell_size
-                histogram, _ = np.histogram(
-                    trimmed[y1:y2, x1:x2],
-                    bins=16,
-                    range=(0, 16),
-                    density=True,
-                )
-                features.append(histogram.astype(np.float32))
-
-        return np.concatenate(features, dtype=np.float32)
-
-    @staticmethod
-    def _dct_descriptor(face_crop: np.ndarray) -> np.ndarray:
-        resized = cv2.resize(face_crop, (32, 32), interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
-        coefficients = cv2.dct(resized)
-        block = np.abs(coefficients[:8, :8]).flatten()
-        return block[1:].astype(np.float32)
-
-    @staticmethod
-    def _symmetry_descriptor(face_crop: np.ndarray) -> np.ndarray:
-        resized = cv2.resize(face_crop, (48, 48), interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
-        left = resized[:, :24]
-        right = np.flip(resized[:, 24:], axis=1)
-        symmetry = 1.0 - float(np.mean(np.abs(left - right)))
-        center_focus = float(resized[:, 18:30].mean())
-        contrast = float(resized.std())
-        return np.asarray([symmetry, center_focus, contrast], dtype=np.float32)
+        return max(centroid_score, 0.45 * best_sample_score + 0.35 * sample_mean + 0.2 * centroid_score)
 
     def _has_legacy_embeddings(self) -> bool:
         for person in self.repository.list_person_profiles(limit=5000):
             person_vector = deserialize_vector(person.centroid)
             if person_vector and not self._is_current_embedding(person_vector):
                 return True
-            for person_sample in self.repository.list_person_samples(person.id or 0):
-                vector = deserialize_vector(person_sample.embedding)
+            for sample in self.repository.list_person_samples(person.id or 0):
+                vector = deserialize_vector(sample.embedding)
                 if vector and not self._is_current_embedding(vector):
                     return True
 
@@ -566,19 +308,13 @@ class FaceClusteringService:
 
     @staticmethod
     def _average_embeddings(values: list[str | None]) -> str | None:
-        vectors: list[list[float]] = []
-        for value in values:
-            vector = deserialize_vector(value)
-            if vector and len(vector) == FACE_EMBEDDING_DIM:
-                vectors.append(vector)
+        vectors = [deserialize_vector(value) for value in values if value]
+        vectors = [vector for vector in vectors if len(vector) == FACE_EMBEDDING_DIM]
         if not vectors:
             return None
         matrix = np.asarray(vectors, dtype=np.float32)
         mean_vector = matrix.mean(axis=0)
-        norm = float(np.linalg.norm(mean_vector))
-        if norm > 0:
-            mean_vector = mean_vector / norm
-        return serialize_vector(mean_vector.tolist())
+        return serialize_vector(FaceClusteringService._normalize(mean_vector).tolist())
 
     @staticmethod
     def _normalize(vector: np.ndarray) -> np.ndarray:
