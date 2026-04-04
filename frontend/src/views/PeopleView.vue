@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { Plus, UploadFilled, UserFilled } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { Delete, Plus, UploadFilled, UserFilled } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 import PhotoCard from '../components/PhotoCard.vue'
 import PhotoDetailDrawer from '../components/PhotoDetailDrawer.vue'
 import {
   addPersonSample,
   createPerson,
+  deletePerson,
+  deletePersonSample,
   findSimilarPhotos,
   getPersonSampleAssetUrl,
   getPhoto,
@@ -30,7 +32,9 @@ const peopleLoading = ref(false)
 const detailLoading = ref(false)
 const creating = ref(false)
 const renaming = ref(false)
+const deletingPerson = ref(false)
 const uploadingSample = ref(false)
+const deletingSampleIds = ref<number[]>([])
 const createName = ref('')
 const renameDrafts = reactive<Record<number, string>>({})
 const sampleInputRef = ref<HTMLInputElement | null>(null)
@@ -42,9 +46,17 @@ const findingSimilar = ref(false)
 const faceClusters = ref<FaceCluster[]>([])
 const renamingLabels = ref<string[]>([])
 
-const selectedPerson = computed(() =>
-  people.value.find((person) => person.id === selectedPersonId.value) || null,
+const selectedPerson = computed(
+  () => people.value.find((person) => person.id === selectedPersonId.value) || null,
 )
+
+function emitWorkspaceRefresh() {
+  window.dispatchEvent(new Event('workspace:refresh'))
+}
+
+function isMessageBoxCancel(error: unknown): boolean {
+  return error === 'cancel' || error === 'close'
+}
 
 function exampleSampleUrl(person: PersonProfile): string {
   return person.example_sample_id ? getPersonSampleAssetUrl(person.example_sample_id) : ''
@@ -56,6 +68,7 @@ async function loadPeople(showBusy = true) {
   try {
     const response = await listPeople(200)
     people.value = response.sort((a, b) => b.linked_photo_count - a.linked_photo_count)
+
     for (const person of people.value) {
       renameDrafts[person.id] = person.name
     }
@@ -72,7 +85,7 @@ async function loadPeople(showBusy = true) {
       personHits.value = []
     }
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '读取人物库失败。'))
+    ElMessage.error(resolveErrorMessage(error, '读取人物库失败'))
   } finally {
     if (showBusy) peopleLoading.value = false
   }
@@ -82,7 +95,7 @@ async function loadFaceClusterList() {
   try {
     faceClusters.value = await listFaceClusters(120)
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '读取人脸簇列表失败。'))
+    ElMessage.error(resolveErrorMessage(error, '读取人脸簇列表失败'))
   }
 }
 
@@ -97,7 +110,7 @@ async function loadPersonDetail(personId: number, showBusy = true) {
     samples.value = sampleList
     personHits.value = photoResponse.hits
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '读取人物详情失败。'))
+    ElMessage.error(resolveErrorMessage(error, '读取人物详情失败'))
   } finally {
     if (showBusy) detailLoading.value = false
   }
@@ -106,7 +119,7 @@ async function loadPersonDetail(personId: number, showBusy = true) {
 async function handleCreatePerson() {
   const name = createName.value.trim()
   if (!name) {
-    ElMessage.warning('请先输入人物名称。')
+    ElMessage.warning('请先输入人物名称')
     return
   }
 
@@ -115,10 +128,11 @@ async function handleCreatePerson() {
     const person = await createPerson(name)
     createName.value = ''
     selectedPersonId.value = person.id
-    await loadPeople(false)
-    ElMessage.success('人物档案已创建。')
+    await Promise.all([loadPeople(false), loadFaceClusterList()])
+    emitWorkspaceRefresh()
+    ElMessage.success('人物档案已创建')
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '创建人物档案失败。'))
+    ElMessage.error(resolveErrorMessage(error, '创建人物档案失败'))
   } finally {
     creating.value = false
   }
@@ -129,15 +143,52 @@ async function handleRenamePerson() {
 
   renaming.value = true
   try {
-    const updated = await renamePerson(selectedPerson.value.id, renameDrafts[selectedPerson.value.id] || '')
+    const updated = await renamePerson(
+      selectedPerson.value.id,
+      renameDrafts[selectedPerson.value.id] || '',
+    )
     people.value = people.value.map((item) => (item.id === updated.id ? updated : item))
     renameDrafts[updated.id] = updated.name
     await Promise.all([loadPersonDetail(updated.id, false), loadFaceClusterList()])
-    ElMessage.success('人物名称已保存。')
+    emitWorkspaceRefresh()
+    ElMessage.success('人物名称已保存')
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '重命名人物失败。'))
+    ElMessage.error(resolveErrorMessage(error, '重命名人物失败'))
   } finally {
     renaming.value = false
+  }
+}
+
+async function handleDeletePerson() {
+  if (!selectedPerson.value) return
+
+  try {
+    await ElMessageBox.confirm(
+      `删除人物“${selectedPerson.value.name}”后，会移除人物档案和参考图，并解除相关自动识别绑定。`,
+      '删除人物',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return
+    ElMessage.error(resolveErrorMessage(error, '删除人物前确认失败'))
+    return
+  }
+
+  deletingPerson.value = true
+  try {
+    await deletePerson(selectedPerson.value.id)
+    selectedPersonId.value = null
+    await Promise.all([loadPeople(false), loadFaceClusterList()])
+    emitWorkspaceRefresh()
+    ElMessage.success('人物已删除')
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, '删除人物失败'))
+  } finally {
+    deletingPerson.value = false
   }
 }
 
@@ -148,7 +199,7 @@ function selectPerson(person: PersonProfile) {
 
 function openSamplePicker() {
   if (!selectedPerson.value) {
-    ElMessage.info('请先选择一个人物档案。')
+    ElMessage.info('请先选择一个人物档案')
     return
   }
   sampleInputRef.value?.click()
@@ -165,12 +216,47 @@ async function handleSampleFileChange(event: Event) {
     people.value = people.value.map((item) => (item.id === updated.id ? updated : item))
     renameDrafts[updated.id] = updated.name
     await Promise.all([loadPersonDetail(updated.id, false), loadFaceClusterList()])
-    ElMessage.success('人物参考图已上传，系统会自动用于识别该人物。')
+    emitWorkspaceRefresh()
+    ElMessage.success('人物参考图已上传，系统会自动刷新识别结果')
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '上传人物参考图失败。'))
+    ElMessage.error(resolveErrorMessage(error, '上传人物参考图失败'))
   } finally {
     uploadingSample.value = false
     target.value = ''
+  }
+}
+
+async function handleDeleteSample(sample: PersonSample) {
+  if (!selectedPerson.value) return
+
+  try {
+    await ElMessageBox.confirm(
+      `删除参考图“${sample.original_filename}”后，人物识别结果会重新计算。`,
+      '删除参考图',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return
+    ElMessage.error(resolveErrorMessage(error, '删除参考图前确认失败'))
+    return
+  }
+
+  deletingSampleIds.value = [...deletingSampleIds.value, sample.id]
+  try {
+    const updated = await deletePersonSample(selectedPerson.value.id, sample.id)
+    people.value = people.value.map((item) => (item.id === updated.id ? updated : item))
+    renameDrafts[updated.id] = updated.name
+    await Promise.all([loadPersonDetail(updated.id, false), loadFaceClusterList()])
+    emitWorkspaceRefresh()
+    ElMessage.success('参考图已删除')
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, '删除参考图失败'))
+  } finally {
+    deletingSampleIds.value = deletingSampleIds.value.filter((item) => item !== sample.id)
   }
 }
 
@@ -208,9 +294,10 @@ async function handleReanalyze() {
     const updatedPhoto = await reanalyzePhoto(selectedPhoto.value.id)
     replacePhoto(updatedPhoto)
     await Promise.all([loadPeople(false), loadFaceClusterList()])
-    ElMessage.success('图片已重新分析。')
+    emitWorkspaceRefresh()
+    ElMessage.success('图片已重新分析')
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '重新分析失败。'))
+    ElMessage.error(resolveErrorMessage(error, '重新分析失败'))
   } finally {
     reanalyzing.value = false
   }
@@ -223,9 +310,9 @@ async function handleFindSimilar() {
   try {
     const response = await findSimilarPhotos(selectedPhoto.value.id, 24)
     personHits.value = response.hits
-    ElMessage.success('已切换到相似图片结果。')
+    ElMessage.success('已切换到相似图片结果')
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '查找相似图片失败。'))
+    ElMessage.error(resolveErrorMessage(error, '查找相似图片失败'))
   } finally {
     findingSimilar.value = false
   }
@@ -237,9 +324,10 @@ async function handleRenameFaceCluster(label: string, displayName: string) {
   try {
     await renameFaceCluster(label, displayName.trim())
     await Promise.all([loadFaceClusterList(), refreshSelectedPhoto(), loadPeople(false)])
-    ElMessage.success(displayName.trim() ? '人脸簇名称已保存。' : '人脸簇名称已清空。')
+    emitWorkspaceRefresh()
+    ElMessage.success(displayName.trim() ? '人脸簇名称已保存' : '人脸簇名称已清空')
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '保存人脸簇名称失败。'))
+    ElMessage.error(resolveErrorMessage(error, '保存人脸簇名称失败'))
   } finally {
     renamingLabels.value = renamingLabels.value.filter((item) => item !== label)
   }
@@ -264,7 +352,9 @@ onBeforeUnmount(() => {
     <section class="page-section fade-in">
       <div class="section-head">
         <h4>人物库</h4>
-        <span class="section-tip">上传带名字的人像参考图，系统会自动把该人物绑定到相似人脸簇。</span>
+        <span class="section-tip">
+          上传带名字的人像参考图后，系统会自动绑定相似人脸簇，并允许你按人物名或人物图检索。
+        </span>
       </div>
 
       <div class="people-create-row">
@@ -301,7 +391,7 @@ onBeforeUnmount(() => {
               <div class="people-copy">
                 <strong>{{ person.name }}</strong>
                 <small>{{ person.sample_count }} 张参考图</small>
-                <span>{{ person.linked_photo_count }} 张识别图片</span>
+                <span>{{ person.linked_photo_count }} 张相关图片</span>
               </div>
             </button>
           </div>
@@ -330,9 +420,7 @@ onBeforeUnmount(() => {
                   <span class="photo-tag">{{ selectedPerson.sample_count }} 张参考图</span>
                   <span class="photo-tag">{{ selectedPerson.linked_cluster_count }} 个人脸簇</span>
                   <span class="photo-tag">{{ selectedPerson.linked_photo_count }} 张识别图片</span>
-                  <span class="photo-tag">
-                    最近更新 {{ formatDateTime(selectedPerson.updated_at) }}
-                  </span>
+                  <span class="photo-tag">最近更新 {{ formatDateTime(selectedPerson.updated_at) }}</span>
                 </div>
               </div>
             </div>
@@ -349,19 +437,25 @@ onBeforeUnmount(() => {
                 accept="image/*"
                 @change="handleSampleFileChange"
               />
-              <el-button
-                plain
-                :icon="UploadFilled"
-                :loading="uploadingSample"
-                @click="openSamplePicker"
-              >
+              <el-button plain :icon="UploadFilled" :loading="uploadingSample" @click="openSamplePicker">
                 上传参考图
+              </el-button>
+              <el-button
+                type="danger"
+                plain
+                :icon="Delete"
+                :loading="deletingPerson"
+                @click="handleDeletePerson"
+              >
+                删除人物
               </el-button>
             </div>
 
             <div class="section-head compact-head">
               <h4>参考图样本</h4>
-              <span class="section-tip">至少上传 1 张清晰正脸图，建议 3-5 张不同角度图片。</span>
+              <span class="section-tip">
+                建议上传 3-5 张不同角度、清晰正脸的人像参考图，删除部分参考图后系统会自动重算人物识别。
+              </span>
             </div>
 
             <div v-if="samples.length" class="sample-grid">
@@ -371,15 +465,30 @@ onBeforeUnmount(() => {
                   <strong>{{ sample.original_filename }}</strong>
                   <span>{{ formatDateTime(sample.created_at) }}</span>
                 </div>
+                <div class="sample-card__actions">
+                  <el-button
+                    type="danger"
+                    text
+                    :loading="deletingSampleIds.includes(sample.id)"
+                    @click.stop="handleDeleteSample(sample)"
+                  >
+                    删除这张参考图
+                  </el-button>
+                </div>
               </article>
             </div>
-            <el-empty v-else :description="detailLoading ? '正在读取样本...' : '先上传一张人物参考图'" />
+            <el-empty
+              v-else
+              :description="detailLoading ? '正在读取参考图...' : '先上传一张人物参考图'"
+            />
           </section>
 
           <section class="page-section inner-section">
             <div class="section-head">
               <h4>该人物相关图片</h4>
-              <span class="section-tip">识别结果来自已绑定人脸簇，人物名也可直接用于搜索页的自然语言描述。</span>
+              <span class="section-tip">
+                结果来自人物参考图与人脸簇绑定，人物名也能直接用于搜索页的自然语言描述。
+              </span>
             </div>
 
             <div v-if="personHits.length" class="photo-grid">
@@ -398,7 +507,7 @@ onBeforeUnmount(() => {
                 detailLoading
                   ? '正在读取人物图片...'
                   : selectedPerson
-                    ? '该人物当前还没有识别到关联图片'
+                    ? '当前还没有识别到与该人物关联的图片'
                     : '请先从左侧选择一个人物档案'
               "
             />
@@ -422,10 +531,15 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.people-create-row,
+.people-create-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+}
+
 .people-rename-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   gap: 12px;
 }
 
@@ -535,7 +649,7 @@ onBeforeUnmount(() => {
 
 .sample-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 14px;
   margin-top: 18px;
 }
@@ -552,7 +666,13 @@ onBeforeUnmount(() => {
 }
 
 .sample-card__copy {
-  padding: 12px;
+  padding: 12px 12px 0;
+}
+
+.sample-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 12px 12px;
 }
 
 .hidden-input {
@@ -572,10 +692,16 @@ onBeforeUnmount(() => {
   }
 }
 
+@media (max-width: 860px) {
+  .people-rename-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 @media (max-width: 720px) {
   .people-create-row,
-  .people-rename-row,
-  .people-main-head {
+  .people-main-head,
+  .people-rename-row {
     grid-template-columns: 1fr;
   }
 }

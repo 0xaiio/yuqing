@@ -1,35 +1,33 @@
 # 跨源 AI 图片智能管理系统
 
-这是一个按“Windows 桌面端 + Python 后端 + 微信/QQ 目录接入”路线搭建的可运行 MVP，目标是把微信、QQ、本地图库和拍照图片统一纳入一个可检索、可归档、可自动分析的系统。
+这是一个面向 Windows 桌面场景的 AI 图片管理 MVP，目标是把微信目录、QQ 目录、本地图库和拍照图片统一纳入一个可检索、可归档、可自动分析的系统。
 
 当前版本已经具备：
 
-- 多来源目录接入
+- 多源目录接入
 - 手动导入 + 实时目录监听
 - SHA256 + pHash 去重
 - 本地 OCR + 可配置视觉模型分析
-- 轻量级人脸聚类与命名
-- 关键词 / 向量 / 相似图检索
-- 以图搜图上传入口
-- 人物库与人物参考图上传
-- 按人物图检索图片
+- 人脸聚类、人物库、人物参考图上传
+- 删除人物、删除单张人物参考图
+- 自然语言检索、标签检索、以图搜图、按人物图检索
 - 人脸簇独立管理页
-- 监听任务队列化与队列状态展示
-- 图片详情抽屉、重新分析和人脸簇命名
+- 监听任务队列化与状态展示
+- 图片详情抽屉、重分析、相似图查找
 
-## 当前技术路线
+## 技术栈
 
 - 桌面端：`Tauri + Vue3 + Element Plus`
 - 后端：`FastAPI + SQLModel + SQLite`
 - 图片存储：本地文件系统
 - OCR：`RapidOCR`
 - 视觉分析：`OpenAI-compatible` 多模态接口
-- 人脸聚类：`OpenCV Haar Cascade + 本地轻量 embedding`
-- 向量检索：本地 `240` 维多模态向量
+- 人脸识别：`OpenCV Haar Cascade + 对齐后的人脸多特征描述子`
+- 向量检索：本地轻量多模态向量
 - 实时监听：`watchdog`
 - 微信 / QQ 接入：用户授权的本地目录导入与监听
 
-## 当前能力说明
+## 当前能力
 
 ### 1. 多源接入
 
@@ -39,65 +37,46 @@
 
 ### 2. AI 分析
 
-- 本地 OCR：从图片中抽取文字
-- 远程视觉模型：生成摘要、场景标签、物体标签
-- 单图重新分析：可在详情抽屉中重新触发
+- 本地 OCR：提取图片中的文字
+- 远程视觉模型：生成中文摘要、场景标签、物体标签
+- 单图重分析：可在图片详情中重新触发
 
-### 3. 人脸聚类与命名
+### 3. 人脸聚类与人物库
 
-- 导入时会尝试检测图片中的人脸
-- 基于本地轻量 embedding 做聚类
-- 支持给人脸簇命名，例如“爸爸”“小明”
-- 命名后可直接参与搜索结果召回
+- 导入时自动检测人脸并做聚类
+- 支持给人脸簇命名
+- 支持新建人物档案并上传多张人物参考图
+- 支持删除整个人物档案
+- 支持删除人物的部分参考图，删除后会自动重算人物中心和相关绑定
+- 上传参考图后，会自动把人物绑定到相似人脸簇
+- 搜索时可以直接使用人物名，也可以上传人物头像查找同一人
 
-说明：
+### 4. 检索能力
 
-- 当前人脸聚类是“工程可落地版本”，重点是流程打通，不是高精度深度学习人脸识别方案
-- 后续可以替换为 `InsightFace`、`FaceNet` 等更强模型
+- 标签检索：人物 / 场景 / 物体 / 来源组合筛选
+- 自然语言检索：例如“去年夏天和小明在海边拍的日落”
+- 以图搜图：按整张图片的视觉特征和 OCR 内容找相似图
+- 按人物图检索：只看人脸特征，适合查找同一个人
+- 相似图片：从单张图片继续找近似结果
 
-### 4. 向量检索
-
-- 搜索页支持三种模式：
-  - `混合检索`
-  - `关键词优先`
-  - `向量优先`
-- 每张图片会生成一份本地多模态向量
-- 支持“查找相似图片”
-
-说明：
-
-- 当前向量方案是本地轻量版本，适合 MVP 和桌面单机演示
-- 后续可以替换为 `CLIP`、`SigLIP` 或云端 embedding 服务
-
-### 5. 实时目录监听
+### 5. 实时监听与自动管理
 
 - 对启用状态的来源目录自动开启监听
-- 新增图片后不会直接在文件事件线程里导入，而是先进入后台队列
-- 同一来源目录的监听事件会先合并，再由单独 worker 顺序处理
-- 前端可看到来源级别的排队数量、处理中状态、最近事件时间和最近完成时间
-- 工作台概览会展示当前监听目录数、排队任务数和 worker 是否忙碌
+- 监听事件先进入队列，再由后台 worker 顺序处理
+- 前端可看到来源级别的排队数量、处理状态和最近处理时间
 
-### 6. 人脸簇独立管理页
+## 人物识别算法说明
 
-- 单独浏览所有人脸簇
-- 按“全部 / 已命名 / 未命名”筛选
-- 查看聚类示例图、图片数量和最近更新时间
-- 在聚类详情区直接重命名，并查看该聚类下的全部图片
+这次版本把原来过于简单的“灰度缩放 + 直方图”方案升级成了更稳定的人脸描述流程：
 
-### 7. 以图搜图上传入口
+1. 使用 `Haar Cascade` 检测人脸
+2. 尝试用眼睛检测做轻量对齐
+3. 对人脸做 `CLAHE` 对比度增强
+4. 组合梯度方向直方图、局部二值模式（LBP）、低频 DCT 特征和对称性特征
+5. 以归一化向量做聚类和人物匹配
+6. 上传新参考图后，结合人物中心和样本相似度重新绑定人脸簇
 
-- 搜索页支持上传一张参考图
-- 后端会对上传图做 OCR、视觉摘要和本地向量编码
-- 使用统一向量索引返回相似图片结果
-- 上传文件只用于本次检索，处理完成后会自动删除临时文件
-
-### 8. 人物库与按人物检索
-
-- 支持新建人物档案，并上传带名字的人物参考图
-- 上传参考图后，会抽取人脸 embedding，并尝试绑定到已有相似人脸簇
-- 后续搜索可直接使用人物名
-- 搜索页也支持上传一张人物头像，直接查找同一个人的图片
-- 自然语言描述中可以直接使用人名，例如“和小明在海边拍的照片”
+另外，启动时如果检测到数据库里还保留旧版人脸 embedding，会自动做一次索引升级，避免旧数据和新算法不兼容。
 
 ## 项目结构
 
@@ -107,60 +86,60 @@ docs/
   windows-build-tools.md
 backend/
   app/
-    ai.py                 # OCR + 视觉模型分析
-    config.py             # 配置项
-    connectors.py         # 多源目录接入
-    database.py           # 数据库与轻量迁移
-    embeddings.py         # 本地多模态向量
-    face_clustering.py    # 人脸检测 / 聚类 / 命名
-    import_pipeline.py    # 导入、归档、去重、分析
-    main.py               # FastAPI 入口
-    models.py             # SQLModel 数据模型
-    repository.py         # 数据访问
-    schemas.py            # API schema
-    search_service.py     # 搜索与相似图服务
-    serializers.py        # 输出序列化
-    watcher.py            # 实时目录监听
+    ai.py
+    config.py
+    connectors.py
+    database.py
+    embeddings.py
+    face_clustering.py
+    import_pipeline.py
+    main.py
+    models.py
+    people.py
+    repository.py
+    schemas.py
+    search_service.py
+    serializers.py
+    watcher.py
 frontend/
   src/
-    components/           # 图片卡片、详情抽屉等
-    layouts/              # 桌面壳布局
-    router/               # 路由
-    services/             # API 与桌面能力
-    views/                # 搜索 / 人脸簇 / 图片源 / 导入任务
-  src-tauri/              # Tauri 桌面壳
+    components/
+    layouts/
+    router/
+    services/
+    views/
+  src-tauri/
 scripts/
-  start-local.ps1         # 一键启动脚本
-start-local.bat           # Windows 双击启动入口
+  start-local.ps1
+start-local.bat
 ```
 
 ## 一键启动
 
-### Windows 双击版
-
-直接运行：
-
-```bat
-start-local.bat
-```
-
-### PowerShell 版
+### PowerShell
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\start-local.ps1
 ```
 
-脚本默认会：
+### 双击启动
+
+```bat
+start-local.bat
+```
+
+脚本默认会自动完成：
 
 1. 检查并创建 `.venv`
 2. 检查并复制 `backend/.env`
 3. 安装后端依赖
 4. 安装前端依赖
-5. 自动把 `%USERPROFILE%\.cargo\bin` 注入当前启动链路的 `PATH`
-6. 在 `-WithTauri` 模式下检查 `rustc/cargo` 与 `MSVC Build Tools`
-7. 拉起 FastAPI
-8. 拉起 Vite 或 Tauri
-9. 打开前端页面和 Swagger 文档
+5. 把 `%USERPROFILE%\.cargo\bin` 注入当前启动链路的 `PATH`
+6. 在 `-WithTauri` 模式下自动导入 Visual Studio Developer Shell
+7. 自动补齐 `cl.exe / link.exe / rc.exe / Windows SDK`
+8. 检查 `rustc`、`cargo` 和 MSVC 工具链
+9. 拉起 FastAPI
+10. 拉起 Vite 或 Tauri
 
 可选参数：
 
@@ -211,42 +190,26 @@ npm run dev
 
 ```powershell
 cd frontend
-$env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
 npm run tauri:dev
 ```
 
 ## Tauri 前置条件
 
-要运行 Tauri 桌面壳，需要安装：
+要运行 Tauri 桌面壳，需要满足下面任一套条件：
 
-- `rustc`
-- `cargo`
-- 确保 `%USERPROFILE%\.cargo\bin` 已加入 `PATH`
-- `Windows Visual Studio Build Tools 2022`
-  - `MSVC v143 C++ toolset`
-  - `Windows 11 SDK 22621`
+- 已安装 `rustc`
+- 已安装 `cargo`
+- `%USERPROFILE%\.cargo\bin` 可被脚本注入到当前环境
+- 已安装带 C++ 工具链的 Visual Studio
+  - `Visual Studio Community` 或 `Build Tools`
+  - `MSVC C++ toolset`
+  - `Windows SDK`
 
 如果只联调前端页面，运行 `npm run dev` 即可，不强依赖 Tauri。
 
-## 管理员安装 Build Tools
+管理员安装 Build Tools 的详细步骤见：
 
-推荐在“管理员 PowerShell”里直接执行：
-
-```powershell
-winget install --id Microsoft.VisualStudio.2022.BuildTools -e `
-  --accept-package-agreements `
-  --accept-source-agreements `
-  --override "--quiet --wait --norestart --nocache --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.22621 --includeRecommended"
-```
-
-安装完成后重开终端，再执行：
-
-```powershell
-& "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -products * -format json
-where cl
-```
-
-更完整的管理员安装与排障步骤见 [docs/windows-build-tools.md](./docs/windows-build-tools.md)。
+- [docs/windows-build-tools.md](./docs/windows-build-tools.md)
 
 ## 环境变量
 
@@ -269,7 +232,12 @@ FACE_CLUSTER_SIMILARITY_THRESHOLD=0.86
 PERSON_RECOGNITION_SIMILARITY_THRESHOLD=0.84
 ```
 
-## 已有 API 能力
+如果你希望人物识别更保守，可以适当调高：
+
+- `FACE_CLUSTER_SIMILARITY_THRESHOLD`
+- `PERSON_RECOGNITION_SIMILARITY_THRESHOLD`
+
+## 已有 API
 
 - `GET /api/v1/health`
 - `GET /api/v1/sources`
@@ -289,8 +257,10 @@ PERSON_RECOGNITION_SIMILARITY_THRESHOLD=0.84
 - `GET /api/v1/people`
 - `POST /api/v1/people`
 - `POST /api/v1/people/{id}/rename`
+- `DELETE /api/v1/people/{id}`
 - `GET /api/v1/people/{id}/samples`
 - `POST /api/v1/people/{id}/samples`
+- `DELETE /api/v1/people/{id}/samples/{sample_id}`
 - `GET /api/v1/people/{id}/photos`
 - `GET /api/v1/person-samples/{id}/asset`
 - `POST /api/v1/search/by-image`
@@ -301,58 +271,54 @@ PERSON_RECOGNITION_SIMILARITY_THRESHOLD=0.84
 
 - 搜索页
   - 关键词 / 向量 / 混合检索
-  - 上传参考图做以图搜图
-  - 上传人物头像做按人物检索
+  - 以图搜图
+  - 按人物图检索
   - 从人物库选择已标注人物
-  - 相似图检索
   - 图片详情抽屉
 - 人物库页
   - 新建人物档案
-  - 上传带名字的人物参考图
+  - 上传人物参考图
+  - 删除整个人物
+  - 删除单张人物参考图
   - 查看该人物相关图片
 - 人脸簇页
-  - 聚类列表与筛选
+  - 人脸簇列表和筛选
   - 人脸簇重命名
-  - 查看该聚类下的全部图片
+  - 查看聚类下的全部图片
 - 图片源页
-  - 新建图片源
-  - 原生目录选择器
+  - 新建来源
+  - 目录选择器
   - 手动导入
   - 实时监听开关
-  - 监听队列状态与最近处理时间
+  - 队列状态展示
 - 导入任务页
   - 批次概览
   - 导入明细
   - 去重统计
 
-## 验证情况
+## 已验证
 
-本地已完成：
+已经做过以下验证：
 
-- 后端依赖安装校验
-- 后端语法检查
-- FastAPI 启动校验
-- 前端 `npm run build`
-- 本地 smoke test：
-  - 新建来源
-  - 导入两张测试图片
-  - 关键词搜索命中
-  - 向量搜索命中
-  - 相似图检索返回结果
-  - 实时监听状态可读取
+- `python -m compileall backend/app`
+- `npm run build`
+- `FastAPI TestClient` 烟测
+  - 健康检查
+  - 按人物图检索
+  - 新建人物
+  - 上传参考图
+  - 删除单张参考图
+  - 删除人物
 
-当前开发机环境检查结果：
+## 已知限制
 
-- `rustc` 已安装，位于 `%USERPROFILE%\.cargo\bin`
-- `cargo` 已安装，位于 `%USERPROFILE%\.cargo\bin`
-- 当前 shell 默认仍不一定自动带上该目录到 `PATH`，但一键启动脚本会自动补齐
-- 已检测到 `Visual Studio Community 2026`
-- 已检测到 `cl.exe`，位于 `D:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\...`
-- 当前尚未完成一次稳定的 `tauri info / tauri dev` 验证，因此 Tauri 环境已接近可用，但还没做最终确认
+- 当前仍是工程可落地版，不是深度学习级人脸识别方案
+- 微信 / QQ 目前采用本地目录导入与监听，不涉及逆向协议登录
+- 大规模图片库下，人物索引和搜索还需要进一步做批处理与异步任务化
 
 ## 下一步建议
 
-- 替换成更强的人脸识别与向量模型
-- 增加自动相册与时间轴视图
-- 把监听队列升级为持久化任务系统
-- 为以图搜图补“上传后裁剪 / 多图比对 / 搜索历史”
+- 替换为 `InsightFace / FaceNet` 等更强的人脸模型
+- 为人物样本增加裁剪与主脸确认
+- 把全库重分析做成后台任务
+- 引入更强的图片向量模型，如 `CLIP / SigLIP`

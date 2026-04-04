@@ -119,6 +119,10 @@ class GalleryRepository:
         self.session.refresh(cluster)
         return cluster
 
+    def delete_face_cluster(self, cluster: FaceCluster) -> None:
+        self.session.delete(cluster)
+        self.session.commit()
+
     def list_person_profiles(self, limit: int = 200) -> list[PersonProfile]:
         statement = select(PersonProfile).order_by(desc(PersonProfile.updated_at)).limit(limit)
         return list(self.session.exec(statement))
@@ -149,6 +153,10 @@ class GalleryRepository:
         self.session.refresh(profile)
         return profile
 
+    def delete_person_profile(self, profile: PersonProfile) -> None:
+        self.session.delete(profile)
+        self.session.commit()
+
     def list_person_samples(self, person_id: int) -> list[PersonSample]:
         statement = (
             select(PersonSample)
@@ -165,3 +173,13 @@ class GalleryRepository:
         self.session.commit()
         self.session.refresh(sample)
         return sample
+
+    def save_person_sample(self, sample: PersonSample) -> PersonSample:
+        self.session.add(sample)
+        self.session.commit()
+        self.session.refresh(sample)
+        return sample
+
+    def delete_person_sample(self, sample: PersonSample) -> None:
+        self.session.delete(sample)
+        self.session.commit()

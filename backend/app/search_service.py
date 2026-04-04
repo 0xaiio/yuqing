@@ -1,5 +1,6 @@
 from app.config import get_settings
 from app.embeddings import VectorEmbeddingService, cosine_similarity, deserialize_vector, tokenize_text
+from app.face_clustering import FaceClusteringService
 from app.repository import GalleryRepository
 from app.schemas import SearchHit, SearchQuery, SearchResponse, decode_json_list
 from app.serializers import build_photo_read
@@ -7,9 +8,11 @@ from app.serializers import build_photo_read
 
 class SearchService:
     def __init__(self, session) -> None:
+        self.session = session
         self.repository = GalleryRepository(session)
         self.vectorizer = VectorEmbeddingService()
         self.settings = get_settings()
+        self.face_service = FaceClusteringService(session, self.settings)
 
     def search(self, payload: SearchQuery) -> SearchResponse:
         query_text = payload.text.strip().lower()
@@ -123,6 +126,12 @@ class SearchService:
 
     def search_by_person_embedding(self, query_embedding: list[float], limit: int = 20) -> SearchResponse:
         cluster_scores: dict[str, float] = {}
+        for person, score in self.face_service.rank_person_profiles(query_embedding, limit=3):
+            if score < self.settings.person_recognition_similarity_threshold:
+                continue
+            for cluster in self.repository.list_face_clusters_by_person(person.id or 0, limit=5000):
+                cluster_scores[cluster.label] = max(cluster_scores.get(cluster.label, 0.0), score)
+
         for cluster in self.repository.list_face_clusters(limit=5000):
             if not cluster.centroid:
                 continue

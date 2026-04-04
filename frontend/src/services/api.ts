@@ -140,6 +140,10 @@ export async function renamePerson(personId: number, name: string): Promise<Pers
   return response.data
 }
 
+export async function deletePerson(personId: number): Promise<void> {
+  await api.delete(`/people/${personId}`)
+}
+
 export async function listPersonSamples(personId: number): Promise<PersonSample[]> {
   const response = await api.get<PersonSample[]>(`/people/${personId}/samples`)
   return response.data
@@ -153,6 +157,14 @@ export async function addPersonSample(personId: number, file: File): Promise<Per
       'Content-Type': 'multipart/form-data',
     },
   })
+  return response.data
+}
+
+export async function deletePersonSample(
+  personId: number,
+  sampleId: number,
+): Promise<PersonProfile> {
+  const response = await api.delete<PersonProfile>(`/people/${personId}/samples/${sampleId}`)
   return response.data
 }
 

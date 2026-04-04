@@ -3,7 +3,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import imagehash
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from PIL import Image
@@ -11,7 +11,7 @@ from sqlmodel import Session
 
 from app.ai import AIAnalyzer
 from app.config import get_settings
-from app.database import create_db_and_tables, get_session
+from app.database import create_db_and_tables, engine, get_session
 from app.embeddings import VectorEmbeddingService, serialize_vector
 from app.face_clustering import FaceClusteringService
 from app.import_pipeline import ImportPipeline
@@ -67,6 +67,8 @@ app.add_middleware(
 def on_startup() -> None:
     settings.ensure_directories()
     create_db_and_tables()
+    with Session(engine) as session:
+        FaceClusteringService(session, settings).refresh_face_index_if_needed()
     watch_manager.refresh()
 
 
@@ -478,6 +480,43 @@ async def add_person_sample(
         message = str(exc)
         status_code = 404 if "not found" in message.lower() else 400
         raise HTTPException(status_code=status_code, detail=message) from exc
+
+    stats = _collect_person_stats(repository)
+    return build_person_read(
+        person,
+        repository,
+        linked_cluster_count=stats.get(person.id or 0, {}).get("linked_cluster_count", 0),
+        linked_photo_count=stats.get(person.id or 0, {}).get("linked_photo_count", 0),
+    )
+
+
+@app.delete(f"{settings.api_prefix}/people/{{person_id}}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_person(
+    person_id: int,
+    session: Session = Depends(get_session),
+) -> Response:
+    deleted = PersonLibraryService(session, settings).delete_person(person_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Person not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.delete(f"{settings.api_prefix}/people/{{person_id}}/samples/{{sample_id}}", response_model=PersonRead)
+def delete_person_sample(
+    person_id: int,
+    sample_id: int,
+    session: Session = Depends(get_session),
+) -> PersonRead:
+    repository = GalleryRepository(session)
+    try:
+        person = PersonLibraryService(session, settings).delete_sample(person_id, sample_id)
+    except ValueError as exc:
+        message = str(exc)
+        status_code = 404 if "not found" in message.lower() else 400
+        raise HTTPException(status_code=status_code, detail=message) from exc
+
+    if person is None:
+        raise HTTPException(status_code=404, detail="Person not found")
 
     stats = _collect_person_stats(repository)
     return build_person_read(

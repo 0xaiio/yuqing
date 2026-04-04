@@ -11,6 +11,7 @@ $backendEnv = Join-Path $repoRoot "backend\.env"
 $backendEnvExample = Join-Path $repoRoot "backend\.env.example"
 $rustBin = Join-Path $env:USERPROFILE ".cargo\bin"
 $buildToolsGuide = Join-Path $repoRoot "docs\windows-build-tools.md"
+$vswherePath = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
 
 function Add-PathEntryIfMissing {
     param(
@@ -32,29 +33,108 @@ function Add-PathEntryIfMissing {
 }
 
 function Test-MsvcBuildTools {
-    if (Get-Command cl.exe -ErrorAction SilentlyContinue) {
+    $requiredTools = @("cl.exe", "link.exe", "rc.exe")
+    $toolCount = @(
+        $requiredTools | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue }
+    ).Count
+    if ($toolCount -eq $requiredTools.Count) {
         return $true
     }
 
-    $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
-    if (-not (Test-Path $vswhere)) {
+    if (-not (Import-VsDeveloperEnvironment)) {
         return $false
     }
 
-    $installPath = & $vswhere -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+    $toolCount = @(
+        $requiredTools | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue }
+    ).Count
+    return $toolCount -eq $requiredTools.Count
+}
+
+function Get-VisualStudioInstallPath {
+    if (-not (Test-Path $vswherePath)) {
+        return $null
+    }
+
+    $installPath = & $vswherePath -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
     if (-not $installPath) {
+        return $null
+    }
+
+    return ($installPath | Select-Object -First 1).Trim()
+}
+
+function Get-VsDevCmdPath {
+    $installPath = Get-VisualStudioInstallPath
+    if (-not $installPath) {
+        return $null
+    }
+
+    $candidate = Join-Path $installPath "Common7\Tools\VsDevCmd.bat"
+    if (Test-Path $candidate) {
+        return $candidate
+    }
+
+    return $null
+}
+
+function Get-LatestWindowsSdkBinPath {
+    $sdkRoot = "C:\Program Files (x86)\Windows Kits\10\bin"
+    if (-not (Test-Path $sdkRoot)) {
+        return $null
+    }
+
+    $versionedBin = Get-ChildItem -Path $sdkRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match "^\d+\.\d+\.\d+\.\d+$" } |
+        Sort-Object { [version]$_.Name } -Descending |
+        Select-Object -First 1
+
+    if ($versionedBin) {
+        $candidate = Join-Path $versionedBin.FullName "x64"
+        if (Test-Path $candidate) {
+            return $candidate
+        }
+    }
+
+    $fallback = Join-Path $sdkRoot "x64"
+    if (Test-Path $fallback) {
+        return $fallback
+    }
+
+    return $null
+}
+
+function Import-VsDeveloperEnvironment {
+    $vsDevCmdPath = Get-VsDevCmdPath
+    if (-not $vsDevCmdPath) {
         return $false
     }
 
-    $clPath = Get-ChildItem -Path $installPath -Filter cl.exe -Recurse -ErrorAction SilentlyContinue |
-        Select-Object -First 1 -ExpandProperty FullName
-
-    if (-not $clPath) {
+    Write-Host "Loading Visual Studio developer environment..."
+    $dump = & cmd.exe /d /s /c "`"$vsDevCmdPath`" -arch=x64 -host_arch=x64 >nul && set"
+    if ($LASTEXITCODE -ne 0 -or -not $dump) {
         return $false
     }
 
-    $clDir = Split-Path $clPath -Parent
-    Add-PathEntryIfMissing $clDir | Out-Null
+    foreach ($line in $dump) {
+        if ($line -notmatch "^(.*?)=(.*)$") {
+            continue
+        }
+
+        $name = $matches[1]
+        $value = $matches[2]
+        if (-not $name) {
+            continue
+        }
+
+        Set-Item -Path "Env:$name" -Value $value
+    }
+
+    $sdkBin = Get-LatestWindowsSdkBinPath
+    if ($sdkBin) {
+        Add-PathEntryIfMissing $sdkBin | Out-Null
+    }
+
     return $true
 }
 
@@ -92,13 +172,24 @@ if (-not (Test-Path $backendEnv) -and (Test-Path $backendEnvExample)) {
     Copy-Item $backendEnvExample $backendEnv
 }
 
-$msvcReady = Test-MsvcBuildTools
 if ($WithTauri -and -not $rustReady) {
     throw "Tauri startup requires rustc/cargo on PATH. Expected Rust at $rustBin."
 }
 
-if ($WithTauri -and -not $msvcReady) {
-    throw "Tauri startup requires Windows Visual Studio Build Tools. See $buildToolsGuide"
+if ($WithTauri) {
+    $msvcReady = Test-MsvcBuildTools
+    if (-not $msvcReady) {
+        throw "Tauri startup requires Windows Visual Studio Build Tools. See $buildToolsGuide"
+    }
+
+    $clCommand = Get-Command cl.exe -ErrorAction SilentlyContinue
+    $rcCommand = Get-Command rc.exe -ErrorAction SilentlyContinue
+    if ($clCommand) {
+        Write-Host "MSVC compiler ready: $($clCommand.Source)"
+    }
+    if ($rcCommand) {
+        Write-Host "Windows SDK resource compiler ready: $($rcCommand.Source)"
+    }
 }
 
 if (-not $SkipInstall) {

@@ -72,7 +72,7 @@ rustc --version
 cargo --version
 ```
 
-项目自带的 `start-local.ps1` 和 `start-local.bat` 已经会自动补这段 PATH，但手动开新终端时仍可能需要你自己加到系统环境变量。
+项目自带的 `start-local.ps1` 和 `start-local.bat` 已经会自动补这段 PATH，并在 `-WithTauri` 模式下自动导入 Visual Studio Developer Shell，但手动开新终端时仍可能需要你自己加到系统环境变量。
 
 ## 7. 验证 Tauri
 
