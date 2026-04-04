@@ -9,7 +9,7 @@ from sqlmodel import Session
 
 from app.config import Settings, get_settings
 from app.embeddings import cosine_similarity, deserialize_vector, serialize_vector
-from app.models import FaceCluster
+from app.models import FaceCluster, PersonProfile
 from app.repository import GalleryRepository
 
 
@@ -30,7 +30,7 @@ class FaceClusteringService:
         )
 
     def analyze_photo(self, photo_path: Path, example_photo_id: int | None = None) -> FaceClusteringResult:
-        embeddings = self._extract_face_embeddings(photo_path)
+        embeddings = self.extract_face_embeddings(photo_path)
         if not embeddings:
             return FaceClusteringResult(labels=[], names=[], face_count=0)
 
@@ -38,10 +38,20 @@ class FaceClusteringService:
         names: list[str] = []
         for embedding in embeddings:
             cluster = self._match_or_create_cluster(embedding, example_photo_id=example_photo_id)
+            person_match = self._match_person_profile(embedding)
+            if person_match is not None:
+                if cluster.person_profile_id != person_match.id:
+                    cluster.person_profile_id = person_match.id
+                if not cluster.display_name:
+                    cluster.display_name = person_match.name
+                cluster = self.repository.save_face_cluster(cluster)
+
             if cluster.label not in labels:
                 labels.append(cluster.label)
             if cluster.display_name and cluster.display_name not in names:
                 names.append(cluster.display_name)
+            if person_match and person_match.name not in names:
+                names.append(person_match.name)
 
         return FaceClusteringResult(labels=labels, names=names, face_count=len(embeddings))
 
@@ -50,11 +60,21 @@ class FaceClusteringService:
             return FaceClusteringResult(labels=[], names=[], face_count=0)
 
         clusters = self.repository.get_face_clusters_by_labels(labels)
+        people = self.repository.get_person_profiles_by_ids(
+            [cluster.person_profile_id for cluster in clusters.values() if cluster.person_profile_id]
+        )
         names = [
             cluster.display_name
             for label in labels
             if (cluster := clusters.get(label)) and cluster.display_name
         ]
+        names.extend(
+            person.name
+            for label in labels
+            if (cluster := clusters.get(label))
+            and cluster.person_profile_id
+            and (person := people.get(cluster.person_profile_id))
+        )
         deduped_names = list(dict.fromkeys(names))
         return FaceClusteringResult(labels=labels, names=deduped_names, face_count=len(labels))
 
@@ -64,6 +84,33 @@ class FaceClusteringService:
             return None
         cluster.display_name = display_name or None
         return self.repository.save_face_cluster(cluster)
+
+    def associate_person_with_clusters(self, person: PersonProfile) -> list[FaceCluster]:
+        if not person.centroid:
+            return []
+
+        person_vector = deserialize_vector(person.centroid)
+        if not person_vector:
+            return []
+
+        updated_clusters: list[FaceCluster] = []
+        for cluster in self.repository.list_face_clusters(limit=5000):
+            cluster_vector = deserialize_vector(cluster.centroid)
+            if not cluster_vector:
+                continue
+            score = cosine_similarity(person_vector, cluster_vector)
+            if score < self.settings.person_recognition_similarity_threshold:
+                continue
+            if cluster.person_profile_id not in (None, person.id):
+                continue
+            cluster.person_profile_id = person.id
+            if not cluster.display_name:
+                cluster.display_name = person.name
+            updated_clusters.append(self.repository.save_face_cluster(cluster))
+        return updated_clusters
+
+    def extract_face_embeddings(self, photo_path: Path) -> list[list[float]]:
+        return self._extract_face_embeddings(photo_path)
 
     def _match_or_create_cluster(
         self,
@@ -97,6 +144,23 @@ class FaceClusteringService:
             example_photo_id=example_photo_id,
         )
         return self.repository.create_face_cluster(new_cluster)
+
+    def _match_person_profile(self, embedding: list[float]) -> PersonProfile | None:
+        best_match: PersonProfile | None = None
+        best_score = -1.0
+
+        for person in self.repository.list_person_profiles(limit=2000):
+            centroid = deserialize_vector(person.centroid)
+            score = cosine_similarity(embedding, centroid)
+            if score > best_score:
+                best_score = score
+                best_match = person
+
+        if best_match is None:
+            return None
+        if best_score < self.settings.person_recognition_similarity_threshold:
+            return None
+        return best_match
 
     def _extract_face_embeddings(self, photo_path: Path) -> list[list[float]]:
         image = cv2.imread(str(photo_path))

@@ -34,7 +34,7 @@ const importingSourceId = ref<number | null>(null)
 const togglingSourceId = ref<number | null>(null)
 const choosingDirectory = ref(false)
 const importLimit = ref(80)
-const nativePickerReady = canUseNativeDirectoryPicker()
+const nativePickerReady = computed(() => canUseNativeDirectoryPicker())
 
 const form = reactive<{
   name: string
@@ -63,17 +63,17 @@ async function loadSourceList() {
 }
 
 async function chooseSourceDirectory() {
-  if (!nativePickerReady) {
-    ElMessage.info('目录选择器仅在 Tauri 桌面壳里可用，当前请直接粘贴路径。')
-    return
-  }
-
   choosingDirectory.value = true
 
   try {
     const selected = await pickDirectory(form.root_path.trim() || undefined)
     if (selected) {
       form.root_path = selected
+      return
+    }
+
+    if (!canUseNativeDirectoryPicker()) {
+      ElMessage.info('当前不是 Tauri 桌面壳，请直接粘贴目录路径。')
     }
   } catch (error) {
     ElMessage.error(resolveErrorMessage(error, '打开目录选择器失败。'))

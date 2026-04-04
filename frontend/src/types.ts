@@ -100,3 +100,23 @@ export interface FaceCluster {
   created_at: string
   updated_at: string
 }
+
+export interface PersonProfile {
+  id: number
+  name: string
+  example_sample_id: number | null
+  example_sample_asset_url: string | null
+  sample_count: number
+  linked_cluster_count: number
+  linked_photo_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface PersonSample {
+  id: number
+  person_id: number
+  original_filename: string
+  asset_url: string | null
+  created_at: string
+}

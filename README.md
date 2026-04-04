@@ -11,6 +11,8 @@
 - 轻量级人脸聚类与命名
 - 关键词 / 向量 / 相似图检索
 - 以图搜图上传入口
+- 人物库与人物参考图上传
+- 按人物图检索图片
 - 人脸簇独立管理页
 - 监听任务队列化与队列状态展示
 - 图片详情抽屉、重新分析和人脸簇命名
@@ -88,6 +90,14 @@
 - 后端会对上传图做 OCR、视觉摘要和本地向量编码
 - 使用统一向量索引返回相似图片结果
 - 上传文件只用于本次检索，处理完成后会自动删除临时文件
+
+### 8. 人物库与按人物检索
+
+- 支持新建人物档案，并上传带名字的人物参考图
+- 上传参考图后，会抽取人脸 embedding，并尝试绑定到已有相似人脸簇
+- 后续搜索可直接使用人物名
+- 搜索页也支持上传一张人物头像，直接查找同一个人的图片
+- 自然语言描述中可以直接使用人名，例如“和小明在海边拍的照片”
 
 ## 项目结构
 
@@ -251,10 +261,12 @@ AI_VISION_API_KEY=
 AI_VISION_MODEL=
 AI_VISION_TIMEOUT_SECONDS=90
 SEARCH_UPLOAD_ROOT=D:/code-repos/yuqing/data/search-uploads
+PERSON_LIBRARY_ROOT=D:/code-repos/yuqing/data/person-library
 WATCHER_ENABLED=true
 WATCHER_RECURSIVE=true
 WATCHER_DEBOUNCE_SECONDS=3
 FACE_CLUSTER_SIMILARITY_THRESHOLD=0.86
+PERSON_RECOGNITION_SIMILARITY_THRESHOLD=0.84
 ```
 
 ## 已有 API 能力
@@ -274,7 +286,15 @@ FACE_CLUSTER_SIMILARITY_THRESHOLD=0.86
 - `GET /api/v1/face-clusters`
 - `GET /api/v1/face-clusters/{label}/photos`
 - `POST /api/v1/face-clusters/{label}/rename`
+- `GET /api/v1/people`
+- `POST /api/v1/people`
+- `POST /api/v1/people/{id}/rename`
+- `GET /api/v1/people/{id}/samples`
+- `POST /api/v1/people/{id}/samples`
+- `GET /api/v1/people/{id}/photos`
+- `GET /api/v1/person-samples/{id}/asset`
 - `POST /api/v1/search/by-image`
+- `POST /api/v1/search/by-person-image`
 - `POST /api/v1/search`
 
 ## 当前前端页面
@@ -282,8 +302,14 @@ FACE_CLUSTER_SIMILARITY_THRESHOLD=0.86
 - 搜索页
   - 关键词 / 向量 / 混合检索
   - 上传参考图做以图搜图
+  - 上传人物头像做按人物检索
+  - 从人物库选择已标注人物
   - 相似图检索
   - 图片详情抽屉
+- 人物库页
+  - 新建人物档案
+  - 上传带名字的人物参考图
+  - 查看该人物相关图片
 - 人脸簇页
   - 聚类列表与筛选
   - 人脸簇重命名
@@ -319,9 +345,10 @@ FACE_CLUSTER_SIMILARITY_THRESHOLD=0.86
 
 - `rustc` 已安装，位于 `%USERPROFILE%\.cargo\bin`
 - `cargo` 已安装，位于 `%USERPROFILE%\.cargo\bin`
-- 当前 shell 未自动带上该目录到 `PATH`
-- 尚未检测到 `Windows Visual Studio Build Tools 2022 / cl.exe`
-- 因此当前机器还不能直接运行 `npm run tauri:dev`
+- 当前 shell 默认仍不一定自动带上该目录到 `PATH`，但一键启动脚本会自动补齐
+- 已检测到 `Visual Studio Community 2026`
+- 已检测到 `cl.exe`，位于 `D:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\...`
+- 当前尚未完成一次稳定的 `tauri info / tauri dev` 验证，因此 Tauri 环境已接近可用，但还没做最终确认
 
 ## 下一步建议
 

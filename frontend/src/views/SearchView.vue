@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { Picture, Search, UploadFilled } from '@element-plus/icons-vue'
+import { Picture, Search, UploadFilled, UserFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 
 import PhotoCard from '../components/PhotoCard.vue'
@@ -9,13 +9,22 @@ import {
   findSimilarPhotos,
   getPhoto,
   listFaceClusters,
+  listPeople,
   listPhotos,
   reanalyzePhoto,
   renameFaceCluster,
   searchByImage,
+  searchByPersonImage,
   searchPhotos,
 } from '../services/api'
-import type { FaceCluster, Photo, SearchHit, SearchMode, SourceKind } from '../types'
+import type {
+  FaceCluster,
+  PersonProfile,
+  Photo,
+  SearchHit,
+  SearchMode,
+  SourceKind,
+} from '../types'
 import {
   parseTagInput,
   resolveErrorMessage,
@@ -24,7 +33,7 @@ import {
 } from '../utils/format'
 
 const loading = ref(false)
-const mode = ref<'recent' | 'search' | 'similar' | 'image'>('recent')
+const mode = ref<'recent' | 'search' | 'similar' | 'image' | 'personImage'>('recent')
 const hits = ref<SearchHit[]>([])
 const detailOpen = ref(false)
 const selectedPhoto = ref<Photo | null>(null)
@@ -32,10 +41,17 @@ const reanalyzing = ref(false)
 const findingSimilar = ref(false)
 const faceClusters = ref<FaceCluster[]>([])
 const renamingLabels = ref<string[]>([])
+const peopleProfiles = ref<PersonProfile[]>([])
+
 const imageSearching = ref(false)
 const queryImagePreview = ref<string | null>(null)
 const queryImageName = ref('')
 const fileInputRef = ref<HTMLInputElement | null>(null)
+
+const personImageSearching = ref(false)
+const personQueryImagePreview = ref<string | null>(null)
+const personQueryImageName = ref('')
+const personFileInputRef = ref<HTMLInputElement | null>(null)
 
 const form = reactive<{
   text: string
@@ -43,6 +59,7 @@ const form = reactive<{
   sceneText: string
   objectText: string
   sourceKinds: SourceKind[]
+  selectedPeople: string[]
   mode: SearchMode
   limit: number
 }>({
@@ -51,6 +68,7 @@ const form = reactive<{
   sceneText: '',
   objectText: '',
   sourceKinds: [],
+  selectedPeople: [],
   mode: 'hybrid',
   limit: 24,
 })
@@ -60,14 +78,20 @@ const quickQueries = [
   '带有发票文字的截图',
   '微信里导入的聚会合影',
   '包含乐高和孩子的照片',
+  '和小明在教室里合影的照片',
 ]
 
 const resultTitle = computed(() => {
   if (mode.value === 'similar') return '相似图片'
   if (mode.value === 'image') return '参考图检索结果'
+  if (mode.value === 'personImage') return '人物图检索结果'
   if (mode.value === 'search') return '搜索结果'
   return '最近导入'
 })
+
+function buildPeopleFilters(): string[] {
+  return Array.from(new Set([...parseTagInput(form.peopleText), ...form.selectedPeople]))
+}
 
 async function loadRecent(showBusy = true) {
   if (showBusy) loading.value = true
@@ -94,13 +118,21 @@ async function loadFaceClusterList() {
   }
 }
 
+async function loadPeopleList() {
+  try {
+    peopleProfiles.value = await listPeople(120)
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, '读取人物库失败。'))
+  }
+}
+
 async function runSearch(showBusy = true) {
   if (showBusy) loading.value = true
 
   try {
     const response = await searchPhotos({
       text: form.text.trim(),
-      people: parseTagInput(form.peopleText),
+      people: buildPeopleFilters(),
       scene_tags: parseTagInput(form.sceneText),
       object_tags: parseTagInput(form.objectText),
       source_kinds: form.sourceKinds,
@@ -121,6 +153,7 @@ function hasSearchFilters(): boolean {
   return Boolean(
     form.text.trim() ||
       form.peopleText.trim() ||
+      form.selectedPeople.length ||
       form.sceneText.trim() ||
       form.objectText.trim() ||
       form.sourceKinds.length,
@@ -137,9 +170,11 @@ function resetFilters() {
   form.peopleText = ''
   form.sceneText = ''
   form.objectText = ''
+  form.selectedPeople = []
   form.sourceKinds = []
   form.mode = 'hybrid'
   clearQueryImage()
+  clearPersonQueryImage()
   void loadRecent()
 }
 
@@ -176,7 +211,7 @@ async function handleReanalyze() {
   try {
     const updatedPhoto = await reanalyzePhoto(selectedPhoto.value.id)
     replacePhoto(updatedPhoto)
-    await loadFaceClusterList()
+    await Promise.all([loadFaceClusterList(), loadPeopleList()])
     ElMessage.success('图片已重新分析。')
   } catch (error) {
     ElMessage.error(resolveErrorMessage(error, '重新分析失败。'))
@@ -206,7 +241,7 @@ async function handleRenameFaceCluster(label: string, displayName: string) {
 
   try {
     await renameFaceCluster(label, displayName.trim())
-    await Promise.all([loadFaceClusterList(), refreshSelectedPhoto()])
+    await Promise.all([loadFaceClusterList(), refreshSelectedPhoto(), loadPeopleList()])
     ElMessage.success(displayName.trim() ? '人脸簇名称已保存。' : '人脸簇名称已清空。')
   } catch (error) {
     ElMessage.error(resolveErrorMessage(error, '保存人脸簇名称失败。'))
@@ -217,6 +252,10 @@ async function handleRenameFaceCluster(label: string, displayName: string) {
 
 function openImagePicker() {
   fileInputRef.value?.click()
+}
+
+function openPersonImagePicker() {
+  personFileInputRef.value?.click()
 }
 
 async function handleImageFileChange(event: Event) {
@@ -244,6 +283,31 @@ async function handleImageFileChange(event: Event) {
   }
 }
 
+async function handlePersonImageFileChange(event: Event) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+
+  if (personQueryImagePreview.value) {
+    URL.revokeObjectURL(personQueryImagePreview.value)
+  }
+  personQueryImagePreview.value = URL.createObjectURL(file)
+  personQueryImageName.value = file.name
+  personImageSearching.value = true
+
+  try {
+    const response = await searchByPersonImage(file, form.limit)
+    hits.value = response.hits
+    mode.value = 'personImage'
+    ElMessage.success('人物图检索已完成。')
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, '按人物图检索失败。'))
+  } finally {
+    personImageSearching.value = false
+    target.value = ''
+  }
+}
+
 function clearQueryImage() {
   if (queryImagePreview.value) {
     URL.revokeObjectURL(queryImagePreview.value)
@@ -252,8 +316,16 @@ function clearQueryImage() {
   queryImageName.value = ''
 }
 
+function clearPersonQueryImage() {
+  if (personQueryImagePreview.value) {
+    URL.revokeObjectURL(personQueryImagePreview.value)
+  }
+  personQueryImagePreview.value = null
+  personQueryImageName.value = ''
+}
+
 function handleWorkspaceRefresh() {
-  void loadFaceClusterList()
+  void Promise.all([loadFaceClusterList(), loadPeopleList()])
   if (mode.value === 'search' && hasSearchFilters()) {
     void runSearch(false)
     return
@@ -262,21 +334,21 @@ function handleWorkspaceRefresh() {
     void handleFindSimilar()
     return
   }
-  if (mode.value === 'image') {
+  if (mode.value === 'image' || mode.value === 'personImage') {
     return
   }
   void loadRecent(false)
 }
 
 onMounted(() => {
-  void loadRecent()
-  void loadFaceClusterList()
+  void Promise.all([loadRecent(), loadFaceClusterList(), loadPeopleList()])
   window.addEventListener('workspace:refresh', handleWorkspaceRefresh)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('workspace:refresh', handleWorkspaceRefresh)
   clearQueryImage()
+  clearPersonQueryImage()
 })
 </script>
 
@@ -285,9 +357,10 @@ onBeforeUnmount(() => {
     <section class="page-section search-board fade-in">
       <div class="page-heading">
         <p class="eyebrow">Natural Retrieval</p>
-        <h3>用一句话或一张参考图搜索跨来源图片</h3>
+        <h3>用一句话、一张图，或者一张人物参考图搜索跨来源图片</h3>
         <p>
-          支持关键词检索、向量相似度召回、以图搜图，也支持叠加人物、场景、物体和来源维度的结构化过滤。
+          输入自然语言时可以直接写人物名，例如“和小明在海边拍的日落”。
+          如果你已经在“人物库”里上传过参考图，系统会把这些人名一起带入识别与搜索。
         </p>
       </div>
 
@@ -324,8 +397,27 @@ onBeforeUnmount(() => {
           <el-segmented v-model="form.mode" :options="searchModeOptions" />
         </div>
         <div class="soft-panel mini-panel">
-          <label>人物标签</label>
-          <el-input v-model="form.peopleText" placeholder="多个标签用逗号分隔，例如：爸爸，小明" />
+          <label>人物名</label>
+          <el-input
+            v-model="form.peopleText"
+            placeholder="多个名称用逗号分隔，例如：爸爸，小明"
+          />
+        </div>
+        <div class="soft-panel mini-panel">
+          <label>已知人物</label>
+          <el-select
+            v-model="form.selectedPeople"
+            multiple
+            collapse-tags
+            placeholder="从人物库选择已标注人物"
+          >
+            <el-option
+              v-for="person in peopleProfiles"
+              :key="person.id"
+              :label="person.name"
+              :value="person.name"
+            />
+          </el-select>
         </div>
         <div class="soft-panel mini-panel">
           <label>场景标签</label>
@@ -348,37 +440,79 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="image-query-panel soft-panel">
-        <div class="section-head compact-head">
-          <h4>以图搜图</h4>
-          <span class="section-tip">上传参考图后，会用本地向量与 OCR 特征召回相似图片</span>
+      <div class="query-panel-grid">
+        <div class="image-query-panel soft-panel">
+          <div class="section-head compact-head">
+            <h4>以图搜图</h4>
+            <span class="section-tip">适合按整体画面、构图、颜色和 OCR 内容找相似图。</span>
+          </div>
+
+          <div class="image-query-row">
+            <div v-if="queryImagePreview" class="image-query-preview">
+              <img :src="queryImagePreview" :alt="queryImageName || 'query-image'" />
+            </div>
+            <div class="image-query-actions">
+              <input
+                ref="fileInputRef"
+                class="hidden-input"
+                type="file"
+                accept="image/*"
+                @change="handleImageFileChange"
+              />
+              <el-button
+                type="primary"
+                plain
+                :icon="UploadFilled"
+                :loading="imageSearching"
+                @click="openImagePicker"
+              >
+                上传参考图
+              </el-button>
+              <span v-if="queryImageName" class="image-query-name">{{ queryImageName }}</span>
+              <el-button v-if="queryImagePreview" text :icon="Picture" @click="clearQueryImage">
+                清除参考图
+              </el-button>
+            </div>
+          </div>
         </div>
 
-        <div class="image-query-row">
-          <div v-if="queryImagePreview" class="image-query-preview">
-            <img :src="queryImagePreview" :alt="queryImageName || 'query-image'" />
+        <div class="image-query-panel soft-panel">
+          <div class="section-head compact-head">
+            <h4>按人物图检索</h4>
+            <span class="section-tip">只看人脸特征，适合用一张人物头像去找同一个人。</span>
           </div>
-          <div class="image-query-actions">
-            <input
-              ref="fileInputRef"
-              class="hidden-input"
-              type="file"
-              accept="image/*"
-              @change="handleImageFileChange"
-            />
-            <el-button
-              type="primary"
-              plain
-              :icon="UploadFilled"
-              :loading="imageSearching"
-              @click="openImagePicker"
-            >
-              上传参考图
-            </el-button>
-            <span v-if="queryImageName" class="image-query-name">{{ queryImageName }}</span>
-            <el-button v-if="queryImagePreview" text :icon="Picture" @click="clearQueryImage">
-              清除参考图
-            </el-button>
+
+          <div class="image-query-row">
+            <div v-if="personQueryImagePreview" class="image-query-preview person-preview">
+              <img :src="personQueryImagePreview" :alt="personQueryImageName || 'person-query-image'" />
+            </div>
+            <div class="image-query-actions">
+              <input
+                ref="personFileInputRef"
+                class="hidden-input"
+                type="file"
+                accept="image/*"
+                @change="handlePersonImageFileChange"
+              />
+              <el-button
+                type="primary"
+                plain
+                :icon="UserFilled"
+                :loading="personImageSearching"
+                @click="openPersonImagePicker"
+              >
+                上传人物图
+              </el-button>
+              <span v-if="personQueryImageName" class="image-query-name">{{ personQueryImageName }}</span>
+              <el-button
+                v-if="personQueryImagePreview"
+                text
+                :icon="Picture"
+                @click="clearPersonQueryImage"
+              >
+                清除人物图
+              </el-button>
+            </div>
           </div>
         </div>
       </div>
@@ -387,7 +521,7 @@ onBeforeUnmount(() => {
     <section class="page-section fade-in">
       <div class="section-head">
         <h4>{{ resultTitle }}</h4>
-        <span class="section-tip">点击图片可查看详情、重分析、命名人脸簇或查找相似图</span>
+        <span class="section-tip">点击图片可查看详情、重分析、命名人脸簇或查找相似图。</span>
       </div>
 
       <div v-if="hits.length" class="photo-grid">
@@ -418,8 +552,15 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.image-query-panel {
+.query-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
   margin-top: 18px;
+}
+
+.image-query-panel {
+  margin-top: 0;
 }
 
 .compact-head {
@@ -439,6 +580,10 @@ onBeforeUnmount(() => {
   overflow: hidden;
   border-radius: 18px;
   border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.person-preview {
+  border-color: rgba(255, 190, 120, 0.28);
 }
 
 .image-query-preview img {
@@ -462,6 +607,12 @@ onBeforeUnmount(() => {
 
 .hidden-input {
   display: none;
+}
+
+@media (max-width: 960px) {
+  .query-panel-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {

@@ -1,3 +1,4 @@
+from app.config import get_settings
 from app.embeddings import VectorEmbeddingService, cosine_similarity, deserialize_vector, tokenize_text
 from app.repository import GalleryRepository
 from app.schemas import SearchHit, SearchQuery, SearchResponse, decode_json_list
@@ -8,22 +9,24 @@ class SearchService:
     def __init__(self, session) -> None:
         self.repository = GalleryRepository(session)
         self.vectorizer = VectorEmbeddingService()
+        self.settings = get_settings()
 
     def search(self, payload: SearchQuery) -> SearchResponse:
         query_text = payload.text.strip().lower()
         query_terms = [term for term in tokenize_text(query_text) if term]
-        people_filter = {item.lower() for item in payload.people}
+        query_people = list(dict.fromkeys(payload.people + self._detect_person_names(query_text)))
+        people_filter = {item.lower() for item in query_people}
         scene_filter = {item.lower() for item in payload.scene_tags}
         object_filter = {item.lower() for item in payload.object_tags}
         source_filter = set(payload.source_kinds)
         face_cluster_filter = set(payload.face_cluster_labels)
         query_vector = self.vectorizer.embed_query(
             text=payload.text,
-            people=payload.people,
+            people=query_people,
             scene_tags=payload.scene_tags,
             object_tags=payload.object_tags,
         )
-        has_vector_query = bool(payload.text.strip() or payload.people or payload.scene_tags or payload.object_tags)
+        has_vector_query = bool(payload.text.strip() or query_people or payload.scene_tags or payload.object_tags)
 
         hits: list[SearchHit] = []
         for photo in self.repository.list_searchable_photos(limit=1200):
@@ -118,6 +121,35 @@ class SearchService:
         ]
         return SearchResponse(total=len(hits), hits=hits[:limit])
 
+    def search_by_person_embedding(self, query_embedding: list[float], limit: int = 20) -> SearchResponse:
+        cluster_scores: dict[str, float] = {}
+        for cluster in self.repository.list_face_clusters(limit=5000):
+            if not cluster.centroid:
+                continue
+            score = cosine_similarity(query_embedding, deserialize_vector(cluster.centroid))
+            if score < self.settings.person_recognition_similarity_threshold:
+                continue
+            cluster_scores[cluster.label] = max(cluster_scores.get(cluster.label, 0.0), score)
+
+        if not cluster_scores:
+            return SearchResponse(total=0, hits=[])
+
+        hits: list[SearchHit] = []
+        for photo in self.repository.list_searchable_photos(limit=5000):
+            photo_face_clusters = decode_json_list(photo.face_clusters)
+            best_score = max((cluster_scores.get(label, 0.0) for label in photo_face_clusters), default=0.0)
+            if best_score <= 0:
+                continue
+            hits.append(
+                SearchHit(
+                    score=best_score,
+                    photo=build_photo_read(self.repository, photo),
+                )
+            )
+
+        hits.sort(key=lambda item: (item.score, item.photo.created_at), reverse=True)
+        return SearchResponse(total=len(hits), hits=hits[:limit])
+
     @staticmethod
     def _merge_scores(mode: str, keyword_score: float, vector_score: float, has_query: bool) -> float:
         if not has_query:
@@ -131,3 +163,14 @@ class SearchService:
         if keyword_score <= 0 and vector_score <= 0.01:
             return 0.0
         return combined
+
+    def _detect_person_names(self, query_text: str) -> list[str]:
+        if not query_text:
+            return []
+
+        matches: list[str] = []
+        for person in self.repository.list_person_profiles(limit=500):
+            normalized_name = (person.normalized_name or "").strip().lower()
+            if normalized_name and normalized_name in query_text:
+                matches.append(person.name)
+        return matches

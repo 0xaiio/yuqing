@@ -5,6 +5,8 @@ import type {
   FaceCluster,
   HealthStatus,
   ImportJob,
+  PersonProfile,
+  PersonSample,
   Photo,
   SearchQueryPayload,
   SearchResponse,
@@ -91,6 +93,18 @@ export async function searchByImage(file: File, limit = 24): Promise<SearchRespo
   return response.data
 }
 
+export async function searchByPersonImage(file: File, limit = 24): Promise<SearchResponse> {
+  const formData = new FormData()
+  formData.set('file', file)
+  formData.set('limit', String(limit))
+  const response = await api.post<SearchResponse>('/search/by-person-image', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+  return response.data
+}
+
 export async function searchPhotos(payload: SearchQueryPayload): Promise<SearchResponse> {
   const response = await api.post<SearchResponse>('/search', payload)
   return response.data
@@ -111,6 +125,44 @@ export async function renameFaceCluster(
   return response.data
 }
 
+export async function listPeople(limit = 100): Promise<PersonProfile[]> {
+  const response = await api.get<PersonProfile[]>('/people', { params: { limit } })
+  return response.data
+}
+
+export async function createPerson(name: string): Promise<PersonProfile> {
+  const response = await api.post<PersonProfile>('/people', { name })
+  return response.data
+}
+
+export async function renamePerson(personId: number, name: string): Promise<PersonProfile> {
+  const response = await api.post<PersonProfile>(`/people/${personId}/rename`, { name })
+  return response.data
+}
+
+export async function listPersonSamples(personId: number): Promise<PersonSample[]> {
+  const response = await api.get<PersonSample[]>(`/people/${personId}/samples`)
+  return response.data
+}
+
+export async function addPersonSample(personId: number, file: File): Promise<PersonProfile> {
+  const formData = new FormData()
+  formData.set('file', file)
+  const response = await api.post<PersonProfile>(`/people/${personId}/samples`, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+  return response.data
+}
+
+export async function listPhotosByPerson(personId: number, limit = 48): Promise<SearchResponse> {
+  const response = await api.get<SearchResponse>(`/people/${personId}/photos`, {
+    params: { limit },
+  })
+  return response.data
+}
+
 export async function listPhotosByFaceCluster(
   clusterLabel: string,
   limit = 48,
@@ -123,4 +175,8 @@ export async function listPhotosByFaceCluster(
 
 export function getPhotoAssetUrl(photoId: number): string {
   return `${apiBaseUrl}/photos/${photoId}/asset`
+}
+
+export function getPersonSampleAssetUrl(sampleId: number): string {
+  return `${apiBaseUrl}/person-samples/${sampleId}/asset`
 }

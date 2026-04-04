@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     database_url: str = f"sqlite:///{(DATA_DIR / 'app.db').as_posix()}"
     import_root: Path = DATA_DIR / "imports"
     search_upload_root: Path = DATA_DIR / "search-uploads"
+    person_library_root: Path = DATA_DIR / "person-library"
     wechat_default_path: Path | None = None
     qq_default_path: Path | None = None
     ai_enable_ocr: bool = True
@@ -29,6 +30,7 @@ class Settings(BaseSettings):
     watcher_recursive: bool = True
     watcher_debounce_seconds: int = 3
     face_cluster_similarity_threshold: float = 0.86
+    person_recognition_similarity_threshold: float = 0.84
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
@@ -40,6 +42,7 @@ class Settings(BaseSettings):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         self.import_root.mkdir(parents=True, exist_ok=True)
         self.search_upload_root.mkdir(parents=True, exist_ok=True)
+        self.person_library_root.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache(maxsize=1)

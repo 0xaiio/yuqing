@@ -1,6 +1,6 @@
 from sqlmodel import Session, desc, select
 
-from app.models import FaceCluster, ImportJob, Photo, Source, utc_now
+from app.models import FaceCluster, ImportJob, PersonProfile, PersonSample, Photo, Source, utc_now
 
 
 class GalleryRepository:
@@ -87,6 +87,15 @@ class GalleryRepository:
         statement = select(FaceCluster).order_by(desc(FaceCluster.updated_at)).limit(limit)
         return list(self.session.exec(statement))
 
+    def list_face_clusters_by_person(self, person_id: int, limit: int = 2000) -> list[FaceCluster]:
+        statement = (
+            select(FaceCluster)
+            .where(FaceCluster.person_profile_id == person_id)
+            .order_by(desc(FaceCluster.updated_at))
+            .limit(limit)
+        )
+        return list(self.session.exec(statement))
+
     def get_face_cluster_by_label(self, label: str) -> FaceCluster | None:
         statement = select(FaceCluster).where(FaceCluster.label == label)
         return self.session.exec(statement).first()
@@ -109,3 +118,50 @@ class GalleryRepository:
         self.session.commit()
         self.session.refresh(cluster)
         return cluster
+
+    def list_person_profiles(self, limit: int = 200) -> list[PersonProfile]:
+        statement = select(PersonProfile).order_by(desc(PersonProfile.updated_at)).limit(limit)
+        return list(self.session.exec(statement))
+
+    def get_person_profile(self, person_id: int) -> PersonProfile | None:
+        return self.session.get(PersonProfile, person_id)
+
+    def get_person_profile_by_name(self, normalized_name: str) -> PersonProfile | None:
+        statement = select(PersonProfile).where(PersonProfile.normalized_name == normalized_name)
+        return self.session.exec(statement).first()
+
+    def get_person_profiles_by_ids(self, person_ids: list[int]) -> dict[int, PersonProfile]:
+        if not person_ids:
+            return {}
+        statement = select(PersonProfile).where(PersonProfile.id.in_(person_ids))
+        return {person.id or 0: person for person in self.session.exec(statement)}
+
+    def create_person_profile(self, profile: PersonProfile) -> PersonProfile:
+        self.session.add(profile)
+        self.session.commit()
+        self.session.refresh(profile)
+        return profile
+
+    def save_person_profile(self, profile: PersonProfile) -> PersonProfile:
+        profile.updated_at = utc_now()
+        self.session.add(profile)
+        self.session.commit()
+        self.session.refresh(profile)
+        return profile
+
+    def list_person_samples(self, person_id: int) -> list[PersonSample]:
+        statement = (
+            select(PersonSample)
+            .where(PersonSample.person_id == person_id)
+            .order_by(desc(PersonSample.created_at))
+        )
+        return list(self.session.exec(statement))
+
+    def get_person_sample(self, sample_id: int) -> PersonSample | None:
+        return self.session.get(PersonSample, sample_id)
+
+    def create_person_sample(self, sample: PersonSample) -> PersonSample:
+        self.session.add(sample)
+        self.session.commit()
+        self.session.refresh(sample)
+        return sample

@@ -1,6 +1,6 @@
-from app.models import Photo, Source
+from app.models import PersonProfile, PersonSample, Photo, Source
 from app.repository import GalleryRepository
-from app.schemas import FaceClusterRead, PhotoRead, SourceRead, decode_json_list
+from app.schemas import FaceClusterRead, PersonRead, PersonSampleRead, PhotoRead, SourceRead, decode_json_list
 
 
 def build_photo_read(repository: GalleryRepository, photo: Photo) -> PhotoRead:
@@ -9,11 +9,22 @@ def build_photo_read(repository: GalleryRepository, photo: Photo) -> PhotoRead:
     object_tags = decode_json_list(photo.object_tags)
     face_clusters = decode_json_list(photo.face_clusters)
     cluster_map = repository.get_face_clusters_by_labels(face_clusters)
-    face_names = [
+    person_map = repository.get_person_profiles_by_ids(
+        [cluster.person_profile_id for cluster in cluster_map.values() if cluster.person_profile_id]
+    )
+    cluster_display_names = [
         cluster.display_name
         for label in face_clusters
         if (cluster := cluster_map.get(label)) and cluster.display_name
     ]
+    recognized_person_names = [
+        person_map[cluster.person_profile_id].name
+        for label in face_clusters
+        if (cluster := cluster_map.get(label))
+        and cluster.person_profile_id
+        and person_map.get(cluster.person_profile_id)
+    ]
+    face_names = list(dict.fromkeys(cluster_display_names + recognized_person_names))
     merged_people = list(dict.fromkeys(base_people + face_names))
 
     return PhotoRead(
@@ -86,4 +97,39 @@ def build_face_cluster_read(
         latest_photo_at=latest_photo_at,
         created_at=cluster.created_at,
         updated_at=cluster.updated_at,
+    )
+
+
+def build_person_read(
+    person: PersonProfile,
+    repository: GalleryRepository,
+    *,
+    linked_cluster_count: int = 0,
+    linked_photo_count: int = 0,
+) -> PersonRead:
+    example_sample = repository.get_person_sample(person.example_sample_id) if person.example_sample_id else None
+    return PersonRead(
+        id=person.id or 0,
+        name=person.name,
+        example_sample_id=person.example_sample_id,
+        example_sample_asset_url=(
+            f"/api/v1/person-samples/{example_sample.id}/asset"
+            if example_sample and example_sample.id
+            else None
+        ),
+        sample_count=person.sample_count,
+        linked_cluster_count=linked_cluster_count,
+        linked_photo_count=linked_photo_count,
+        created_at=person.created_at,
+        updated_at=person.updated_at,
+    )
+
+
+def build_person_sample_read(sample: PersonSample) -> PersonSampleRead:
+    return PersonSampleRead(
+        id=sample.id or 0,
+        person_id=sample.person_id,
+        original_filename=sample.original_filename,
+        asset_url=f"/api/v1/person-samples/{sample.id}/asset" if sample.id else None,
+        created_at=sample.created_at,
     )

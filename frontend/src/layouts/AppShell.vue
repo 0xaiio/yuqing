@@ -27,6 +27,7 @@ const metrics = ref({
 
 const navItems = [
   { to: '/search', label: '自然搜索', caption: '关键词、向量和以图搜图', icon: Search },
+  { to: '/people', label: '人物库', caption: '上传人物参考图并做人物识别', icon: Camera },
   { to: '/faces', label: '人脸簇管理', caption: '命名聚类并查看所属图片', icon: UserFilled },
   { to: '/sources', label: '图片源配置', caption: '接入微信 / QQ / 本地目录', icon: FolderOpened },
   { to: '/jobs', label: '导入任务', caption: '跟踪去重、归档与监听导入', icon: UploadFilled },

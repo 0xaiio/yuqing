@@ -57,6 +57,27 @@ class FaceCluster(SQLModel, table=True):
     label: str = Field(index=True)
     display_name: str | None = None
     centroid: str | None = None
+    person_profile_id: int | None = Field(default=None, foreign_key="personprofile.id")
     example_photo_id: int | None = Field(default=None, foreign_key="photo.id")
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+
+class PersonProfile(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+    normalized_name: str = Field(index=True)
+    centroid: str | None = None
+    example_sample_id: int | None = None
+    sample_count: int = 0
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class PersonSample(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    person_id: int = Field(foreign_key="personprofile.id", index=True)
+    original_filename: str
+    storage_path: str
+    embedding: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)

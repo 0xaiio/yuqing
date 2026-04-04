@@ -29,9 +29,24 @@ def _run_sqlite_migrations() -> None:
         "facecluster": {
             "display_name": "TEXT",
             "centroid": "TEXT",
+            "person_profile_id": "INTEGER",
             "example_photo_id": "INTEGER",
             "created_at": "TIMESTAMP",
             "updated_at": "TIMESTAMP",
+        },
+        "personprofile": {
+            "normalized_name": "TEXT",
+            "centroid": "TEXT",
+            "example_sample_id": "INTEGER",
+            "sample_count": "INTEGER DEFAULT 0",
+            "created_at": "TIMESTAMP",
+            "updated_at": "TIMESTAMP",
+        },
+        "personsample": {
+            "original_filename": "TEXT",
+            "storage_path": "TEXT",
+            "embedding": "TEXT",
+            "created_at": "TIMESTAMP",
         },
     }
 

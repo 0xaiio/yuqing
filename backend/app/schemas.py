@@ -122,6 +122,34 @@ class FaceClusterRenameRequest(BaseModel):
     display_name: str = Field(default="", max_length=40)
 
 
+class PersonCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+
+
+class PersonRenameRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+
+
+class PersonSampleRead(BaseModel):
+    id: int
+    person_id: int
+    original_filename: str
+    asset_url: str | None = None
+    created_at: datetime
+
+
+class PersonRead(BaseModel):
+    id: int
+    name: str
+    example_sample_id: int | None = None
+    example_sample_asset_url: str | None = None
+    sample_count: int = 0
+    linked_cluster_count: int = 0
+    linked_photo_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+
 class HealthRead(BaseModel):
     status: str
     app_name: str

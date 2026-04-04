@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import AppShell from '../layouts/AppShell.vue'
 import FaceClustersView from '../views/FaceClustersView.vue'
 import JobsView from '../views/JobsView.vue'
+import PeopleView from '../views/PeopleView.vue'
 import SearchView from '../views/SearchView.vue'
 import SourcesView from '../views/SourcesView.vue'
 
@@ -31,6 +32,14 @@ const router = createRouter({
           meta: {
             title: '人脸簇独立管理',
             description: '查看聚类数量、样例图、命名状态，并集中管理某个人脸簇下的图片。',
+          },
+        },
+        {
+          path: '/people',
+          component: PeopleView,
+          meta: {
+            title: '人物库与人物识别',
+            description: '为特定人物上传参考图，自动绑定人脸簇，并按人名或人像检索图片。',
           },
         },
         {
