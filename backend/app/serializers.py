@@ -1,4 +1,4 @@
-from app.models import PersonProfile, PersonSample, Photo, Source
+from app.models import PersonProfile, PersonSample, Photo, Source, Video
 from app.repository import GalleryRepository
 from app.schemas import (
     FaceClusterRead,
@@ -7,6 +7,7 @@ from app.schemas import (
     PersonSampleRead,
     PhotoRead,
     SourceRead,
+    VideoRead,
     decode_json_list,
 )
 
@@ -81,6 +82,59 @@ def build_source_read(
         last_watch_event_at=last_watch_event_at,
         last_watch_completed_at=last_watch_completed_at,
         created_at=source.created_at,
+    )
+
+
+def build_video_read(repository: GalleryRepository, video: Video) -> VideoRead:
+    base_people = decode_json_list(video.people)
+    scene_tags = decode_json_list(video.scene_tags)
+    object_tags = decode_json_list(video.object_tags)
+    face_clusters = decode_json_list(video.face_clusters)
+    cluster_map = repository.get_face_clusters_by_labels(face_clusters)
+    person_map = repository.get_person_profiles_by_ids(
+        [cluster.person_profile_id for cluster in cluster_map.values() if cluster.person_profile_id]
+    )
+    cluster_display_names = [
+        cluster.display_name
+        for label in face_clusters
+        if (cluster := cluster_map.get(label)) and cluster.display_name
+    ]
+    recognized_person_names = [
+        person_map[cluster.person_profile_id].name
+        for label in face_clusters
+        if (cluster := cluster_map.get(label))
+        and cluster.person_profile_id
+        and person_map.get(cluster.person_profile_id)
+    ]
+    face_names = list(dict.fromkeys(cluster_display_names + recognized_person_names))
+    merged_people = list(dict.fromkeys(base_people + face_names))
+
+    return VideoRead(
+        id=video.id or 0,
+        source_id=video.source_id,
+        source_kind=video.source_kind,
+        source_name=video.source_name,
+        original_path=video.original_path,
+        storage_path=video.storage_path,
+        thumbnail_path=video.thumbnail_path,
+        thumbnail_asset_url=(f"/api/v1/videos/{video.id}/thumbnail" if video.id and video.thumbnail_path else None),
+        sha256=video.sha256,
+        caption=video.caption,
+        ocr_text=video.ocr_text,
+        people=merged_people,
+        scene_tags=scene_tags,
+        object_tags=object_tags,
+        face_clusters=face_clusters,
+        face_names=face_names,
+        face_count=video.face_count,
+        vector_ready=bool(video.vector_embedding),
+        duration_seconds=video.duration_seconds,
+        frame_width=video.frame_width,
+        frame_height=video.frame_height,
+        fps=video.fps,
+        sampled_frame_count=video.sampled_frame_count,
+        taken_at=video.taken_at,
+        created_at=video.created_at,
     )
 
 

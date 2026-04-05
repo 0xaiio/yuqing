@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     person_library_root: Path = DATA_DIR / "person-library"
     face_model_root: Path = DATA_DIR / "face-models"
     face_runtime_config_path: Path = DATA_DIR / "face-runtime-config.json"
+    video_frame_root: Path = DATA_DIR / "video-frames"
     wechat_default_path: Path | None = None
     qq_default_path: Path | None = None
     ai_enable_ocr: bool = True
@@ -44,6 +45,12 @@ class Settings(BaseSettings):
     face_cluster_similarity_threshold: float = 0.5
     person_recognition_similarity_threshold: float = 0.52
     face_tuning_preview_cluster_limit: int = 240
+    video_frame_sample_interval_seconds: int = 3
+    video_max_sampled_frames: int = 8
+    video_thumbnail_offset_ratio: float = 0.15
+    video_embedding_model_id: str = "google/siglip2-base-patch16-224"
+    video_embedding_device: str = "cpu"
+    video_scene_candidate_limit: int = 5
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
@@ -57,6 +64,7 @@ class Settings(BaseSettings):
         self.search_upload_root.mkdir(parents=True, exist_ok=True)
         self.person_library_root.mkdir(parents=True, exist_ok=True)
         self.face_model_root.mkdir(parents=True, exist_ok=True)
+        self.video_frame_root.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache(maxsize=1)

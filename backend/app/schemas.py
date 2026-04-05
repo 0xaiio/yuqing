@@ -84,6 +84,36 @@ class PhotoRead(BaseModel):
     created_at: datetime
 
 
+class VideoRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    source_id: int | None = None
+    source_kind: str | None = None
+    source_name: str | None = None
+    original_path: str
+    storage_path: str
+    thumbnail_path: str | None = None
+    thumbnail_asset_url: str | None = None
+    sha256: str
+    caption: str | None = None
+    ocr_text: str | None = None
+    people: list[str] = Field(default_factory=list)
+    scene_tags: list[str] = Field(default_factory=list)
+    object_tags: list[str] = Field(default_factory=list)
+    face_clusters: list[str] = Field(default_factory=list)
+    face_names: list[str] = Field(default_factory=list)
+    face_count: int = 0
+    vector_ready: bool = False
+    duration_seconds: float | None = None
+    frame_width: int | None = None
+    frame_height: int | None = None
+    fps: float | None = None
+    sampled_frame_count: int = 0
+    taken_at: datetime | None = None
+    created_at: datetime
+
+
 class SearchQuery(BaseModel):
     text: str = ""
     people: list[str] = Field(default_factory=list)
@@ -103,6 +133,16 @@ class SearchHit(BaseModel):
 class SearchResponse(BaseModel):
     total: int
     hits: list[SearchHit]
+
+
+class VideoSearchHit(BaseModel):
+    score: float
+    video: VideoRead
+
+
+class VideoSearchResponse(BaseModel):
+    total: int
+    hits: list[VideoSearchHit]
 
 
 class FaceClusterRead(BaseModel):

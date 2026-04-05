@@ -39,6 +39,33 @@ class Photo(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class Video(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    source_id: Optional[int] = Field(default=None, foreign_key="source.id")
+    source_kind: str | None = Field(default=None, index=True)
+    source_name: str | None = None
+    external_id: str | None = Field(default=None, index=True)
+    original_path: str
+    storage_path: str
+    thumbnail_path: str | None = None
+    sha256: str = Field(index=True)
+    caption: str | None = None
+    ocr_text: str | None = None
+    people: str | None = None
+    scene_tags: str | None = None
+    object_tags: str | None = None
+    face_clusters: str | None = None
+    face_count: int = 0
+    vector_embedding: str | None = None
+    duration_seconds: float | None = None
+    frame_width: int | None = None
+    frame_height: int | None = None
+    fps: float | None = None
+    sampled_frame_count: int = 0
+    taken_at: datetime | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class ImportJob(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     source_id: Optional[int] = Field(default=None, foreign_key="source.id")

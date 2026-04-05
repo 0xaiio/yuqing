@@ -52,6 +52,54 @@ class AIAnalyzer:
         fallback.ocr_text = (fallback.ocr_text or "").strip() or None
         return fallback
 
+    def analyze_video_frames(
+        self,
+        frame_paths: list[Path],
+        *,
+        source_kind: str,
+        asset_name: str,
+    ) -> AnalysisResult:
+        if not frame_paths:
+            return AnalysisResult(
+                caption=f"Imported video from {source_kind}: {asset_name}",
+                ocr_text=None,
+                people=[],
+                scene_tags=[],
+                object_tags=[],
+            )
+
+        fallback = AnalysisResult(
+            caption=f"Imported video from {source_kind}: {asset_name}",
+            ocr_text=None,
+            people=[],
+            scene_tags=[],
+            object_tags=[],
+        )
+        aggregated_ocr: list[str] = []
+        for frame_path in frame_paths[:6]:
+            ocr_text = self._run_ocr(frame_path)
+            if ocr_text:
+                aggregated_ocr.append(ocr_text)
+
+        if aggregated_ocr:
+            fallback.ocr_text = "\n".join(self._dedupe_items(aggregated_ocr))
+
+        vision_result = self._run_video_vision(
+            frame_paths[:6],
+            source_kind=source_kind,
+            asset_name=asset_name,
+            ocr_text=fallback.ocr_text,
+        )
+        if vision_result is not None:
+            fallback = self._merge_results(fallback, vision_result)
+
+        fallback.people = self._dedupe_items(fallback.people)
+        fallback.scene_tags = self._dedupe_items(fallback.scene_tags)
+        fallback.object_tags = self._dedupe_items(fallback.object_tags)
+        fallback.caption = (fallback.caption or "").strip() or f"Imported video from {source_kind}: {asset_name}"
+        fallback.ocr_text = (fallback.ocr_text or "").strip() or None
+        return fallback
+
     def _fallback_analysis(self, photo_path: Path, source_kind: str) -> AnalysisResult:
         stem_tokens = [token.lower() for token in re.split(r"[_\-\s]+", photo_path.stem) if token]
         scene_tags = sorted({token for token in stem_tokens if token in SCENE_CANDIDATES})
@@ -125,6 +173,41 @@ class AIAnalyzer:
             return None
         return parsed
 
+    def _run_video_vision(
+        self,
+        frame_paths: list[Path],
+        *,
+        source_kind: str,
+        asset_name: str,
+        ocr_text: str | None,
+    ) -> AnalysisResult | None:
+        if not self.settings.ai_enable_vision:
+            return None
+        if not self.settings.ai_vision_model or not self.settings.ai_vision_api_key:
+            return None
+
+        request_body = self._build_video_vision_payload(
+            frame_paths,
+            source_kind=source_kind,
+            asset_name=asset_name,
+            ocr_text=ocr_text,
+        )
+        endpoint = self.settings.ai_vision_base_url.rstrip("/") + "/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.settings.ai_vision_api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            with httpx.Client(timeout=self.settings.ai_vision_timeout_seconds) as client:
+                response = client.post(endpoint, json=request_body, headers=headers)
+                response.raise_for_status()
+        except Exception:
+            return None
+
+        content = self._extract_message_content(response.json())
+        return self._parse_vision_json(content)
+
     def _build_vision_payload(self, photo_path: Path, source_kind: str, ocr_text: str | None) -> dict[str, Any]:
         image_base64 = base64.b64encode(photo_path.read_bytes()).decode("utf-8")
         suffix = photo_path.suffix.lower().replace(".", "") or "jpeg"
@@ -158,6 +241,53 @@ class AIAnalyzer:
                             "image_url": {"url": f"data:{mime_type};base64,{image_base64}"},
                         },
                     ],
+                },
+            ],
+        }
+
+    def _build_video_vision_payload(
+        self,
+        frame_paths: list[Path],
+        *,
+        source_kind: str,
+        asset_name: str,
+        ocr_text: str | None,
+    ) -> dict[str, Any]:
+        prompt = (
+            "These images are sampled frames from one video for an AI media manager.\n"
+            f"Source kind: {source_kind}\n"
+            f"Asset name: {asset_name}\n"
+            f"OCR preview: {ocr_text or 'none'}\n"
+            "Return strict JSON only with keys: caption, people, scene_tags, object_tags.\n"
+            "Rules:\n"
+            "- caption is one concise Chinese sentence describing the whole video.\n"
+            "- people, scene_tags, object_tags are arrays of short Chinese labels.\n"
+            "- If uncertain, return empty arrays instead of guessing.\n"
+            "- Focus on stable information across the sampled frames instead of single-frame noise."
+        )
+        content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+        for frame_path in frame_paths:
+            suffix = frame_path.suffix.lower().replace(".", "") or "jpeg"
+            mime_type = "image/jpeg" if suffix in {"jpg", "jpeg"} else f"image/{suffix}"
+            image_base64 = base64.b64encode(frame_path.read_bytes()).decode("utf-8")
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime_type};base64,{image_base64}"},
+                }
+            )
+
+        return {
+            "model": self.settings.ai_vision_model,
+            "temperature": 0.2,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a precise multimodal tagger for a desktop media manager.",
+                },
+                {
+                    "role": "user",
+                    "content": content,
                 },
             ],
         }

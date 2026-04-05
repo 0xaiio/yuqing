@@ -11,6 +11,8 @@ numpy==2.4.4
 python-multipart==0.0.20
 pyyaml==6.0.3
 huggingface_hub==0.32.2
+transformers==4.51.3
+sentencepiece==0.2.0
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.6.0+cpu
 torchvision==0.21.0+cpu

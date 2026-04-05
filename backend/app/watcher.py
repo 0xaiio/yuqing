@@ -298,7 +298,7 @@ class SourceImportEventHandler(FileSystemEventHandler):
 
     def _handle_event(self, event: FileSystemEvent, moved_path: str | None = None) -> None:
         candidate = Path(moved_path or event.src_path)
-        if event.is_directory or candidate.suffix.lower() not in BaseConnector.IMAGE_SUFFIXES:
+        if event.is_directory or not BaseConnector.is_supported_media(candidate):
             return
 
         with self._lock:

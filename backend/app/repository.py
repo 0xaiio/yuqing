@@ -1,6 +1,6 @@
 from sqlmodel import Session, desc, select
 
-from app.models import FaceCluster, ImportJob, PersonProfile, PersonSample, Photo, Source, utc_now
+from app.models import FaceCluster, ImportJob, PersonProfile, PersonSample, Photo, Source, Video, utc_now
 
 
 class GalleryRepository:
@@ -47,6 +47,21 @@ class GalleryRepository:
         statement = select(Photo).where(Photo.sha256 == sha256)
         return self.session.exec(statement).first()
 
+    def list_recent_videos(self, limit: int = 50) -> list[Video]:
+        statement = select(Video).order_by(desc(Video.created_at)).limit(limit)
+        return list(self.session.exec(statement))
+
+    def list_searchable_videos(self, limit: int = 1000) -> list[Video]:
+        statement = select(Video).order_by(desc(Video.created_at)).limit(limit)
+        return list(self.session.exec(statement))
+
+    def get_video(self, video_id: int) -> Video | None:
+        return self.session.get(Video, video_id)
+
+    def find_video_by_sha256(self, sha256: str) -> Video | None:
+        statement = select(Video).where(Video.sha256 == sha256)
+        return self.session.exec(statement).first()
+
     def list_import_jobs(self, limit: int = 50) -> list[ImportJob]:
         statement = select(ImportJob).order_by(desc(ImportJob.created_at)).limit(limit)
         return list(self.session.exec(statement))
@@ -63,6 +78,12 @@ class GalleryRepository:
         self.session.commit()
         self.session.refresh(photo)
         return photo
+
+    def save_video(self, video: Video) -> Video:
+        self.session.add(video)
+        self.session.commit()
+        self.session.refresh(video)
+        return video
 
     def finish_import_job(
         self,
