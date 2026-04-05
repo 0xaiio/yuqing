@@ -150,6 +150,100 @@ class PersonRead(BaseModel):
     updated_at: datetime
 
 
+class PersonClusterCorrectionCandidateRead(BaseModel):
+    label: str
+    display_name: str | None = None
+    example_photo_id: int | None = None
+    example_photo_asset_url: str | None = None
+    photo_count: int = 0
+    score: float
+    competitor_score: float = 0
+    margin: float = 0
+    current_person_id: int | None = None
+    current_person_name: str | None = None
+    linked_to_selected_person: bool = False
+    recommended: bool = False
+
+
+class PersonClusterCorrectionRequest(BaseModel):
+    cluster_labels: list[str] = Field(default_factory=list)
+    action: str = Field(pattern="^(bind|unbind)$")
+
+
+class PersonClusterCorrectionResult(BaseModel):
+    person: PersonRead
+    updated_cluster_count: int = 0
+    updated_labels: list[str] = Field(default_factory=list)
+
+
+class FaceThresholds(BaseModel):
+    face_detection_confidence_threshold: float = Field(ge=0, le=1)
+    face_detection_nms_threshold: float = Field(ge=0, le=1)
+    face_cluster_similarity_threshold: float = Field(ge=0, le=1)
+    person_recognition_similarity_threshold: float = Field(ge=0, le=1)
+
+
+class FaceTuningBandRead(BaseModel):
+    label: str
+    min_score: float
+    max_score: float
+    count: int
+
+
+class FaceTuningMergePreviewRead(BaseModel):
+    label: str
+    display_name: str | None = None
+    photo_count: int = 0
+    neighbor_label: str
+    neighbor_display_name: str | None = None
+    neighbor_photo_count: int = 0
+    score: float
+    distance_to_threshold: float
+
+
+class FaceTuningPersonPreviewRead(BaseModel):
+    label: str
+    display_name: str | None = None
+    photo_count: int = 0
+    current_person_id: int | None = None
+    current_person_name: str | None = None
+    best_person_id: int | None = None
+    best_person_name: str | None = None
+    score: float
+    second_score: float = 0
+    margin: float = 0
+    distance_to_threshold: float
+
+
+class FaceTuningPreviewRead(BaseModel):
+    total_clusters: int
+    preview_cluster_count: int
+    total_people: int
+    total_photos: int
+    linked_clusters: int
+    merge_candidate_count: int
+    ambiguous_merge_count: int
+    person_candidate_count: int
+    ambiguous_person_match_count: int
+    nearest_neighbor_mean_score: float
+    best_person_mean_score: float
+    cluster_similarity_bands: list[FaceTuningBandRead] = Field(default_factory=list)
+    person_score_bands: list[FaceTuningBandRead] = Field(default_factory=list)
+    borderline_merges: list[FaceTuningMergePreviewRead] = Field(default_factory=list)
+    borderline_person_matches: list[FaceTuningPersonPreviewRead] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class FaceTuningBundleRead(BaseModel):
+    thresholds: FaceThresholds
+    defaults: FaceThresholds
+    preview: FaceTuningPreviewRead
+
+
+class FaceThresholdUpdateRequest(FaceThresholds):
+    rebuild_index: bool = False
+
+
 class HealthRead(BaseModel):
     status: str
     app_name: str

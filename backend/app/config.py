@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     search_upload_root: Path = DATA_DIR / "search-uploads"
     person_library_root: Path = DATA_DIR / "person-library"
     face_model_root: Path = DATA_DIR / "face-models"
+    face_runtime_config_path: Path = DATA_DIR / "face-runtime-config.json"
     wechat_default_path: Path | None = None
     qq_default_path: Path | None = None
     ai_enable_ocr: bool = True
@@ -42,6 +43,7 @@ class Settings(BaseSettings):
     face_recognition_batch_size: int = 8
     face_cluster_similarity_threshold: float = 0.5
     person_recognition_similarity_threshold: float = 0.52
+    face_tuning_preview_cluster_limit: int = 240
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,

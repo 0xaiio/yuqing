@@ -3,8 +3,12 @@ import axios from 'axios'
 import type {
   CreateSourcePayload,
   FaceCluster,
+  FaceThresholds,
+  FaceTuningBundle,
   HealthStatus,
   ImportJob,
+  PersonClusterCorrectionCandidate,
+  PersonClusterCorrectionResult,
   PersonProfile,
   PersonSample,
   Photo,
@@ -175,6 +179,34 @@ export async function listPhotosByPerson(personId: number, limit = 48): Promise<
   return response.data
 }
 
+export async function listPersonCorrectionCandidates(
+  personId: number,
+  limit = 80,
+): Promise<PersonClusterCorrectionCandidate[]> {
+  const response = await api.get<PersonClusterCorrectionCandidate[]>(
+    `/people/${personId}/correction-candidates`,
+    {
+      params: { limit },
+    },
+  )
+  return response.data
+}
+
+export async function applyPersonClusterCorrection(
+  personId: number,
+  action: 'bind' | 'unbind',
+  clusterLabels: string[],
+): Promise<PersonClusterCorrectionResult> {
+  const response = await api.post<PersonClusterCorrectionResult>(
+    `/people/${personId}/cluster-corrections`,
+    {
+      action,
+      cluster_labels: clusterLabels,
+    },
+  )
+  return response.data
+}
+
 export async function listPhotosByFaceCluster(
   clusterLabel: string,
   limit = 48,
@@ -191,4 +223,28 @@ export function getPhotoAssetUrl(photoId: number): string {
 
 export function getPersonSampleAssetUrl(sampleId: number): string {
   return `${apiBaseUrl}/person-samples/${sampleId}/asset`
+}
+
+export async function getFaceTuning(): Promise<FaceTuningBundle> {
+  const response = await api.get<FaceTuningBundle>('/face-tuning')
+  return response.data
+}
+
+export async function previewFaceTuning(payload: FaceThresholds): Promise<FaceTuningBundle> {
+  const response = await api.post<FaceTuningBundle>('/face-tuning/preview', {
+    ...payload,
+    rebuild_index: false,
+  })
+  return response.data
+}
+
+export async function saveFaceTuning(
+  payload: FaceThresholds,
+  rebuildIndex = false,
+): Promise<FaceTuningBundle> {
+  const response = await api.post<FaceTuningBundle>('/face-tuning/settings', {
+    ...payload,
+    rebuild_index: rebuildIndex,
+  })
+  return response.data
 }

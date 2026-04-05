@@ -142,6 +142,13 @@ class FaceClusteringService:
         scores.sort(key=lambda item: item[1], reverse=True)
         return scores[:limit]
 
+    def score_person_profile(
+        self,
+        person: PersonProfile,
+        embedding: list[float],
+    ) -> float:
+        return self._score_person_profile(person, embedding)
+
     def refresh_face_index_if_needed(self) -> bool:
         if not self._has_legacy_embeddings():
             return False

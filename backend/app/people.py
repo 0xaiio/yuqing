@@ -8,7 +8,7 @@ from sqlmodel import Session
 
 from app.config import Settings, get_settings
 from app.embeddings import VectorEmbeddingService, deserialize_vector, serialize_vector
-from app.face_clustering import FaceClusteringService
+from app.face_clustering import PERSON_MATCH_MARGIN, FaceClusteringService
 from app.models import PersonProfile, PersonSample
 from app.repository import GalleryRepository
 from app.schemas import decode_json_list
@@ -138,6 +138,130 @@ class PersonLibraryService:
         self._refresh_photos_for_cluster_labels(list(dict.fromkeys(affected_labels)), strip_names=[profile.name])
         return profile
 
+    def list_cluster_correction_candidates(self, person_id: int, limit: int = 80) -> list[dict[str, object]]:
+        profile = self.repository.get_person_profile(person_id)
+        if profile is None:
+            raise ValueError("Person not found")
+
+        cluster_stats = self._collect_face_cluster_stats()
+        people_by_id = self.repository.get_person_profiles_by_ids(
+            [
+                cluster.person_profile_id
+                for cluster in self.repository.list_face_clusters(limit=5000)
+                if cluster.person_profile_id
+            ]
+        )
+
+        candidates: list[dict[str, object]] = []
+        for cluster in self.repository.list_face_clusters(limit=5000):
+            embedding = deserialize_vector(cluster.centroid)
+            if not embedding:
+                continue
+
+            selected_score = self.face_service.score_person_profile(profile, embedding)
+            ranked_people = self.face_service.rank_person_profiles(embedding, limit=3)
+            competitor_score = 0.0
+            if ranked_people:
+                top_person, top_score = ranked_people[0]
+                if top_person.id == person_id:
+                    competitor_score = ranked_people[1][1] if len(ranked_people) > 1 else 0.0
+                else:
+                    competitor_score = top_score
+
+            current_person = people_by_id.get(cluster.person_profile_id or 0)
+            recommended = (
+                selected_score >= self.settings.person_recognition_similarity_threshold
+                and (selected_score - competitor_score) >= PERSON_MATCH_MARGIN
+            )
+            candidates.append(
+                {
+                    "label": cluster.label,
+                    "display_name": cluster.display_name,
+                    "example_photo_id": cluster.example_photo_id,
+                    "photo_count": int(cluster_stats.get(cluster.label, {}).get("photo_count", 0)),
+                    "score": selected_score,
+                    "competitor_score": competitor_score,
+                    "margin": selected_score - competitor_score,
+                    "current_person_id": current_person.id if current_person and current_person.id else None,
+                    "current_person_name": current_person.name if current_person else None,
+                    "linked_to_selected_person": cluster.person_profile_id == person_id,
+                    "recommended": recommended,
+                }
+            )
+
+        candidates.sort(
+            key=lambda item: (
+                int(bool(item["linked_to_selected_person"])),
+                int(bool(item["recommended"])),
+                float(item["score"]),
+                int(item["photo_count"]),
+            ),
+            reverse=True,
+        )
+        return candidates[:limit]
+
+    def apply_cluster_correction(
+        self,
+        person_id: int,
+        *,
+        cluster_labels: list[str],
+        action: str,
+    ) -> tuple[PersonProfile | None, list[str]]:
+        profile = self.repository.get_person_profile(person_id)
+        if profile is None:
+            return None, []
+        if action not in {"bind", "unbind"}:
+            raise ValueError("Unsupported correction action")
+
+        labels = list(dict.fromkeys(label.strip() for label in cluster_labels if label.strip()))
+        if not labels:
+            raise ValueError("No face clusters selected")
+
+        clusters_by_label = self.repository.get_face_clusters_by_labels(labels)
+        previous_people = self.repository.get_person_profiles_by_ids(
+            [
+                cluster.person_profile_id
+                for cluster in clusters_by_label.values()
+                if cluster.person_profile_id and cluster.person_profile_id != person_id
+            ]
+        )
+
+        strip_names = [profile.name]
+        strip_names.extend(person.name for person in previous_people.values() if person.name)
+
+        updated_labels: list[str] = []
+        for label in labels:
+            cluster = clusters_by_label.get(label)
+            if cluster is None:
+                continue
+
+            changed = False
+            if action == "bind":
+                if cluster.person_profile_id != person_id:
+                    cluster.person_profile_id = person_id
+                    changed = True
+                if cluster.display_name != profile.name:
+                    cluster.display_name = profile.name
+                    changed = True
+            else:
+                if cluster.person_profile_id != person_id:
+                    continue
+                cluster.person_profile_id = None
+                if cluster.display_name and self.normalize_name(cluster.display_name) == profile.normalized_name:
+                    cluster.display_name = None
+                changed = True
+
+            if not changed:
+                continue
+
+            self.repository.save_face_cluster(cluster)
+            updated_labels.append(cluster.label)
+
+        if updated_labels:
+            self._refresh_photos_for_cluster_labels(updated_labels, strip_names=strip_names)
+
+        return self.repository.get_person_profile(person_id), updated_labels
+
     @staticmethod
     def normalize_name(name: str) -> str:
         return " ".join(name.strip().lower().split())
@@ -231,3 +355,15 @@ class PersonLibraryService:
                     )
                 )
             self.repository.save_photo(photo)
+
+    def _collect_face_cluster_stats(self) -> dict[str, dict[str, object]]:
+        stats: dict[str, dict[str, object]] = {}
+        for photo in self.repository.list_searchable_photos(limit=5000):
+            latest_time = photo.taken_at or photo.created_at
+            for label in decode_json_list(photo.face_clusters):
+                item = stats.setdefault(label, {"photo_count": 0, "latest_photo_at": None})
+                item["photo_count"] = int(item["photo_count"]) + 1
+                previous_latest = item["latest_photo_at"]
+                if previous_latest is None or (latest_time and latest_time > previous_latest):
+                    item["latest_photo_at"] = latest_time
+        return stats

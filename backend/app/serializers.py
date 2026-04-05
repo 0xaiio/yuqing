@@ -1,6 +1,14 @@
 from app.models import PersonProfile, PersonSample, Photo, Source
 from app.repository import GalleryRepository
-from app.schemas import FaceClusterRead, PersonRead, PersonSampleRead, PhotoRead, SourceRead, decode_json_list
+from app.schemas import (
+    FaceClusterRead,
+    PersonClusterCorrectionCandidateRead,
+    PersonRead,
+    PersonSampleRead,
+    PhotoRead,
+    SourceRead,
+    decode_json_list,
+)
 
 
 def build_photo_read(repository: GalleryRepository, photo: Photo) -> PhotoRead:
@@ -132,4 +140,30 @@ def build_person_sample_read(sample: PersonSample) -> PersonSampleRead:
         original_filename=sample.original_filename,
         asset_url=f"/api/v1/person-samples/{sample.id}/asset" if sample.id else None,
         created_at=sample.created_at,
+    )
+
+
+def build_person_cluster_correction_candidate(
+    payload: dict[str, object],
+) -> PersonClusterCorrectionCandidateRead:
+    example_photo_id = payload.get("example_photo_id")
+    return PersonClusterCorrectionCandidateRead(
+        label=str(payload["label"]),
+        display_name=str(payload["display_name"]) if payload.get("display_name") else None,
+        example_photo_id=int(example_photo_id) if example_photo_id else None,
+        example_photo_asset_url=(
+            f"/api/v1/photos/{int(example_photo_id)}/asset" if example_photo_id else None
+        ),
+        photo_count=int(payload.get("photo_count", 0)),
+        score=float(payload.get("score", 0.0)),
+        competitor_score=float(payload.get("competitor_score", 0.0)),
+        margin=float(payload.get("margin", 0.0)),
+        current_person_id=(
+            int(payload["current_person_id"]) if payload.get("current_person_id") is not None else None
+        ),
+        current_person_name=(
+            str(payload["current_person_name"]) if payload.get("current_person_name") else None
+        ),
+        linked_to_selected_person=bool(payload.get("linked_to_selected_person", False)),
+        recommended=bool(payload.get("recommended", False)),
     )

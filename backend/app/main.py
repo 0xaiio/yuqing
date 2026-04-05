@@ -14,16 +14,22 @@ from app.config import get_settings
 from app.database import create_db_and_tables, engine, get_session
 from app.embeddings import VectorEmbeddingService, serialize_vector
 from app.face_clustering import FaceClusteringService
+from app.face_tuning import FaceRuntimeConfigService, FaceTuningService
 from app.import_pipeline import ImportPipeline
 from app.people import PersonLibraryService
 from app.repository import GalleryRepository
 from app.schemas import (
     FaceClusterRead,
     FaceClusterRenameRequest,
+    FaceThresholdUpdateRequest,
+    FaceTuningBundleRead,
     HealthRead,
     ImportJobRead,
     ImportRequest,
     PersonCreate,
+    PersonClusterCorrectionCandidateRead,
+    PersonClusterCorrectionRequest,
+    PersonClusterCorrectionResult,
     PersonRead,
     PersonRenameRequest,
     PersonSampleRead,
@@ -37,6 +43,7 @@ from app.schemas import (
 from app.search_service import SearchService
 from app.serializers import (
     build_face_cluster_read,
+    build_person_cluster_correction_candidate,
     build_person_read,
     build_person_sample_read,
     build_photo_read,
@@ -49,7 +56,7 @@ watch_manager = SourceWatchManager(settings)
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.4.0",
+    version="0.5.0",
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -66,6 +73,7 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup() -> None:
     settings.ensure_directories()
+    FaceRuntimeConfigService(settings).apply_persisted_thresholds()
     create_db_and_tables()
     with Session(engine) as session:
         FaceClusteringService(session, settings).refresh_face_index_if_needed()
@@ -551,6 +559,93 @@ def list_person_photos(
             limit=limit,
         )
     )
+
+
+@app.get(
+    f"{settings.api_prefix}/people/{{person_id}}/correction-candidates",
+    response_model=list[PersonClusterCorrectionCandidateRead],
+)
+def list_person_correction_candidates(
+    person_id: int,
+    limit: int = Query(default=80, ge=1, le=200),
+    session: Session = Depends(get_session),
+) -> list[PersonClusterCorrectionCandidateRead]:
+    try:
+        candidates = PersonLibraryService(session, settings).list_cluster_correction_candidates(
+            person_id,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return [build_person_cluster_correction_candidate(item) for item in candidates]
+
+
+@app.post(
+    f"{settings.api_prefix}/people/{{person_id}}/cluster-corrections",
+    response_model=PersonClusterCorrectionResult,
+)
+def apply_person_cluster_correction(
+    person_id: int,
+    payload: PersonClusterCorrectionRequest,
+    session: Session = Depends(get_session),
+) -> PersonClusterCorrectionResult:
+    repository = GalleryRepository(session)
+    service = PersonLibraryService(session, settings)
+    try:
+        person, updated_labels = service.apply_cluster_correction(
+            person_id,
+            cluster_labels=payload.cluster_labels,
+            action=payload.action,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if person is None:
+        raise HTTPException(status_code=404, detail="Person not found")
+
+    stats = _collect_person_stats(repository)
+    return PersonClusterCorrectionResult(
+        person=build_person_read(
+            person,
+            repository,
+            linked_cluster_count=stats.get(person.id or 0, {}).get("linked_cluster_count", 0),
+            linked_photo_count=stats.get(person.id or 0, {}).get("linked_photo_count", 0),
+        ),
+        updated_cluster_count=len(updated_labels),
+        updated_labels=updated_labels,
+    )
+
+
+@app.get(f"{settings.api_prefix}/face-tuning", response_model=FaceTuningBundleRead)
+def get_face_tuning(
+    session: Session = Depends(get_session),
+) -> FaceTuningBundleRead:
+    bundle = FaceTuningService(session, settings).build_bundle()
+    return FaceTuningBundleRead.model_validate(bundle)
+
+
+@app.post(f"{settings.api_prefix}/face-tuning/preview", response_model=FaceTuningBundleRead)
+def preview_face_tuning(
+    payload: FaceThresholdUpdateRequest,
+    session: Session = Depends(get_session),
+) -> FaceTuningBundleRead:
+    overrides = payload.model_dump(exclude={"rebuild_index"})
+    bundle = FaceTuningService(session, settings).build_bundle(overrides)
+    return FaceTuningBundleRead.model_validate(bundle)
+
+
+@app.post(f"{settings.api_prefix}/face-tuning/settings", response_model=FaceTuningBundleRead)
+def update_face_tuning(
+    payload: FaceThresholdUpdateRequest,
+    session: Session = Depends(get_session),
+) -> FaceTuningBundleRead:
+    updates = payload.model_dump(exclude={"rebuild_index"})
+    bundle = FaceTuningService(session, settings).update_thresholds(
+        updates,
+        rebuild_index=payload.rebuild_index,
+    )
+    return FaceTuningBundleRead.model_validate(bundle)
 
 
 @app.post(f"{settings.api_prefix}/search", response_model=SearchResponse)

@@ -120,3 +120,88 @@ export interface PersonSample {
   asset_url: string | null
   created_at: string
 }
+
+export interface PersonClusterCorrectionCandidate {
+  label: string
+  display_name: string | null
+  example_photo_id: number | null
+  example_photo_asset_url: string | null
+  photo_count: number
+  score: number
+  competitor_score: number
+  margin: number
+  current_person_id: number | null
+  current_person_name: string | null
+  linked_to_selected_person: boolean
+  recommended: boolean
+}
+
+export interface PersonClusterCorrectionResult {
+  person: PersonProfile
+  updated_cluster_count: number
+  updated_labels: string[]
+}
+
+export interface FaceThresholds {
+  face_detection_confidence_threshold: number
+  face_detection_nms_threshold: number
+  face_cluster_similarity_threshold: number
+  person_recognition_similarity_threshold: number
+}
+
+export interface FaceTuningBand {
+  label: string
+  min_score: number
+  max_score: number
+  count: number
+}
+
+export interface FaceTuningMergePreview {
+  label: string
+  display_name: string | null
+  photo_count: number
+  neighbor_label: string
+  neighbor_display_name: string | null
+  neighbor_photo_count: number
+  score: number
+  distance_to_threshold: number
+}
+
+export interface FaceTuningPersonPreview {
+  label: string
+  display_name: string | null
+  photo_count: number
+  current_person_id: number | null
+  current_person_name: string | null
+  best_person_id: number | null
+  best_person_name: string | null
+  score: number
+  second_score: number
+  margin: number
+  distance_to_threshold: number
+}
+
+export interface FaceTuningPreview {
+  total_clusters: number
+  preview_cluster_count: number
+  total_people: number
+  total_photos: number
+  linked_clusters: number
+  merge_candidate_count: number
+  ambiguous_merge_count: number
+  person_candidate_count: number
+  ambiguous_person_match_count: number
+  nearest_neighbor_mean_score: number
+  best_person_mean_score: number
+  cluster_similarity_bands: FaceTuningBand[]
+  person_score_bands: FaceTuningBand[]
+  borderline_merges: FaceTuningMergePreview[]
+  borderline_person_matches: FaceTuningPersonPreview[]
+  notes: string[]
+}
+
+export interface FaceTuningBundle {
+  thresholds: FaceThresholds
+  defaults: FaceThresholds
+  preview: FaceTuningPreview
+}
