@@ -15,6 +15,10 @@
 - 阈值可视化调参
 - 人脸检索评估脚本
 
+当前正在推进的视频扩展路线见：
+
+- [docs/video-support-readme.md](./docs/video-support-readme.md)
+
 ## 当前人脸方案
 
 系统已经从旧的手工特征方案升级为：
@@ -125,6 +129,19 @@
 - `MRR`
 - `Hit@1 / Hit@5 / Hit@10`
 - 可选 JSON 详细报告
+
+## 视频扩展路线
+
+当前视频支持按下面这条深度学习路线推进：
+
+- 人物检测与识别：`SCRFD + AdaFace`
+- 视频检索向量：`SigLIP2`
+- 多帧场景理解：`Qwen2.5-VL`
+- 抽帧策略：第一阶段均匀抽帧，第二阶段升级到 `TransNetV2`
+
+专项 TODO 与阶段状态见：
+
+- [docs/video-support-readme.md](./docs/video-support-readme.md)
 
 示例：
 
