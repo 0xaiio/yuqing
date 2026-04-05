@@ -43,6 +43,8 @@ from app.schemas import (
     decode_json_list,
 )
 from app.search_service import SearchService
+from app.video_processing import VideoProcessingService
+from app.video_search_service import VideoSearchService
 from app.serializers import (
     build_face_cluster_read,
     build_person_cluster_correction_candidate,
@@ -259,6 +261,15 @@ def get_video_thumbnail(video_id: int, session: Session = Depends(get_session)) 
     return FileResponse(path=asset_path)
 
 
+@app.get(f"{settings.api_prefix}/videos/{{video_id}}/similar", response_model=VideoSearchResponse)
+def similar_videos(
+    video_id: int,
+    limit: int = Query(default=24, ge=1, le=100),
+    session: Session = Depends(get_session),
+) -> VideoSearchResponse:
+    return VideoSearchService(session).similar_to_video(video_id, limit=limit)
+
+
 @app.get(f"{settings.api_prefix}/person-samples/{{sample_id}}/asset")
 def get_person_sample_asset(
     sample_id: int,
@@ -381,6 +392,26 @@ async def search_by_person_image(
         if not embeddings:
             raise HTTPException(status_code=400, detail="No face detected in the uploaded query image")
         return SearchService(session).search_by_person_embedding(embeddings[0], limit=limit)
+    finally:
+        target_path.unlink(missing_ok=True)
+
+
+@app.post(f"{settings.api_prefix}/search/videos/by-video", response_model=VideoSearchResponse)
+async def search_videos_by_video(
+    file: UploadFile = File(...),
+    limit: int = Form(default=24),
+    session: Session = Depends(get_session),
+) -> VideoSearchResponse:
+    suffix = Path(file.filename or "query-video.mp4").suffix.lower() or ".mp4"
+    target_path = settings.search_upload_root / f"video-query-{uuid4().hex}{suffix}"
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Empty video upload")
+
+    target_path.write_bytes(payload)
+    try:
+        query_vector = VideoProcessingService(session, settings).build_query_video_embedding(target_path)
+        return VideoSearchService(session).search_by_vector(query_vector, limit=limit)
     finally:
         target_path.unlink(missing_ok=True)
 
@@ -704,6 +735,14 @@ def search_photos(
     session: Session = Depends(get_session),
 ) -> SearchResponse:
     return SearchService(session).search(payload)
+
+
+@app.post(f"{settings.api_prefix}/search/videos", response_model=VideoSearchResponse)
+def search_videos(
+    payload: SearchQuery,
+    session: Session = Depends(get_session),
+) -> VideoSearchResponse:
+    return VideoSearchService(session).search(payload)
 
 
 def _build_source_read_with_status(source) -> SourceRead:

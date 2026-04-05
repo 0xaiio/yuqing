@@ -102,3 +102,17 @@ export function resolveErrorMessage(error: unknown, fallback: string): string {
 
   return fallback
 }
+
+export function formatDuration(value: number | null | undefined): string {
+  if (!value || value <= 0) return '00:00'
+
+  const totalSeconds = Math.floor(value)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  if (hours > 0) {
+    return [hours, minutes, seconds].map((item) => String(item).padStart(2, '0')).join(':')
+  }
+  return [minutes, seconds].map((item) => String(item).padStart(2, '0')).join(':')
+}

@@ -15,6 +15,8 @@ import type {
   SearchQueryPayload,
   SearchResponse,
   Source,
+  Video,
+  VideoSearchResponse,
 } from '../types'
 
 const apiBaseUrl = (
@@ -68,8 +70,18 @@ export async function listPhotos(limit = 60): Promise<Photo[]> {
   return response.data
 }
 
+export async function listVideos(limit = 60): Promise<Video[]> {
+  const response = await api.get<Video[]>('/videos', { params: { limit } })
+  return response.data
+}
+
 export async function getPhoto(photoId: number): Promise<Photo> {
   const response = await api.get<Photo>(`/photos/${photoId}`)
+  return response.data
+}
+
+export async function getVideo(videoId: number): Promise<Video> {
+  const response = await api.get<Video>(`/videos/${videoId}`)
   return response.data
 }
 
@@ -111,6 +123,11 @@ export async function searchByPersonImage(file: File, limit = 24): Promise<Searc
 
 export async function searchPhotos(payload: SearchQueryPayload): Promise<SearchResponse> {
   const response = await api.post<SearchResponse>('/search', payload)
+  return response.data
+}
+
+export async function searchVideos(payload: SearchQueryPayload): Promise<VideoSearchResponse> {
+  const response = await api.post<VideoSearchResponse>('/search/videos', payload)
   return response.data
 }
 
@@ -217,8 +234,35 @@ export async function listPhotosByFaceCluster(
   return response.data
 }
 
+export async function findSimilarVideos(videoId: number, limit = 24): Promise<VideoSearchResponse> {
+  const response = await api.get<VideoSearchResponse>(`/videos/${videoId}/similar`, {
+    params: { limit },
+  })
+  return response.data
+}
+
+export async function searchByVideo(file: File, limit = 24): Promise<VideoSearchResponse> {
+  const formData = new FormData()
+  formData.set('file', file)
+  formData.set('limit', String(limit))
+  const response = await api.post<VideoSearchResponse>('/search/videos/by-video', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+  return response.data
+}
+
 export function getPhotoAssetUrl(photoId: number): string {
   return `${apiBaseUrl}/photos/${photoId}/asset`
+}
+
+export function getVideoAssetUrl(videoId: number): string {
+  return `${apiBaseUrl}/videos/${videoId}/asset`
+}
+
+export function getVideoThumbnailUrl(videoId: number): string {
+  return `${apiBaseUrl}/videos/${videoId}/thumbnail`
 }
 
 export function getPersonSampleAssetUrl(sampleId: number): string {

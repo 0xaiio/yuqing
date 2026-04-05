@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   Camera,
   FolderOpened,
+  Film,
   Operation,
   Refresh,
   Search,
@@ -14,7 +15,7 @@ import { ElMessage } from 'element-plus'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
 
 import StatCard from '../components/StatCard.vue'
-import { apiBaseUrl, getHealth, listPhotos, listSources } from '../services/api'
+import { apiBaseUrl, getHealth, listPhotos, listSources, listVideos } from '../services/api'
 import { formatCount } from '../utils/format'
 
 const route = useRoute()
@@ -23,12 +24,14 @@ const backendOnline = ref(false)
 const metrics = ref({
   sources: 0,
   photos: 0,
+  videos: 0,
   queuedTasks: 0,
   watchers: 0,
 })
 
 const navItems = [
-  { to: '/search', label: '自然搜索', caption: '关键词、向量和以图搜图', icon: Search },
+  { to: '/search', label: '图片搜索', caption: '关键词、向量和以图搜图', icon: Search },
+  { to: '/videos', label: '视频搜索', caption: '文本搜视频和以视频搜视频', icon: Film },
   { to: '/people', label: '人物库', caption: '上传人物参考图并做人物识别', icon: Camera },
   { to: '/people-corrections', label: '标注校正', caption: '批量纠正人物绑定和误识别', icon: Operation },
   { to: '/faces', label: '人脸簇管理', caption: '命名聚类并查看所属图片', icon: UserFilled },
@@ -37,11 +40,11 @@ const navItems = [
   { to: '/jobs', label: '导入任务', caption: '跟踪去重、归档与监听导入', icon: UploadFilled },
 ] as const
 
-const currentTitle = computed(() => (route.meta.title as string) || '跨源图片工作台')
+const currentTitle = computed(() => (route.meta.title as string) || '跨源媒体工作台')
 const currentDescription = computed(
   () =>
     (route.meta.description as string) ||
-    '把聊天图、本地图和拍照图片统一收进一个可检索、可归档、可自动分析的桌面工作流。',
+    '把聊天图、视频、本地图和拍照内容统一收进一个可检索、可归档、可自动分析的桌面工作流。',
 )
 
 let refreshTimer: number | undefined
@@ -50,11 +53,17 @@ async function loadOverview(showBusy = true) {
   if (showBusy) loading.value = true
 
   try {
-    const [health, sources, photos] = await Promise.all([getHealth(), listSources(), listPhotos(200)])
+    const [health, sources, photos, videos] = await Promise.all([
+      getHealth(),
+      listSources(),
+      listPhotos(200),
+      listVideos(200),
+    ])
     backendOnline.value = health.status === 'ok'
     metrics.value = {
       sources: sources.length,
       photos: photos.length,
+      videos: videos.length,
       queuedTasks: health.queued_watch_tasks,
       watchers: health.active_watchers,
     }
@@ -103,10 +112,8 @@ onBeforeUnmount(() => {
         </div>
         <div>
           <p class="eyebrow">Cross Source Studio</p>
-          <h1>跨源 AI 图片智能管理</h1>
-          <p class="sidebar-copy">
-            面向微信、QQ、本地图库与拍照归档的一体化桌面工作台。
-          </p>
+          <h1>跨源 AI 媒体智能管理</h1>
+          <p class="sidebar-copy">面向图片和视频的一体化桌面工作台。</p>
         </div>
       </div>
 
@@ -164,11 +171,20 @@ onBeforeUnmount(() => {
 
         <StatCard
           tone="teal"
-          label="图库规模"
+          label="图片规模"
           :value="loading ? '...' : formatCount(metrics.photos)"
           helper="当前已归档图片"
         >
           <el-icon><Camera /></el-icon>
+        </StatCard>
+
+        <StatCard
+          tone="slate"
+          label="视频规模"
+          :value="loading ? '...' : formatCount(metrics.videos)"
+          helper="当前已归档视频"
+        >
+          <el-icon><Film /></el-icon>
         </StatCard>
 
         <StatCard
@@ -178,15 +194,6 @@ onBeforeUnmount(() => {
           helper="等待后台监听导入的任务"
         >
           <el-icon><UploadFilled /></el-icon>
-        </StatCard>
-
-        <StatCard
-          tone="slate"
-          label="实时监听"
-          :value="loading ? '...' : formatCount(metrics.watchers)"
-          helper="当前正在监听的目录"
-        >
-          <el-icon><Search /></el-icon>
         </StatCard>
       </section>
 

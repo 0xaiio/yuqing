@@ -122,6 +122,17 @@ class VideoProcessingService:
             vector_embedding=vector_embedding,
         )
 
+    def build_query_video_embedding(self, video_path: Path) -> list[float]:
+        temp_root = self.settings.video_frame_root / f"query-{uuid4().hex[:12]}"
+        sampled_root = temp_root / "_sampled"
+        sampled_root.mkdir(parents=True, exist_ok=True)
+        try:
+            metadata = self._read_metadata(video_path)
+            _, frame_paths = self._extract_frames(video_path, metadata, temp_root, sampled_root)
+            return self.video_embeddings.embed_video_example(frame_paths)
+        finally:
+            shutil.rmtree(temp_root, ignore_errors=True)
+
     def _read_metadata(self, video_path: Path) -> VideoMetadata:
         capture = cv2.VideoCapture(str(video_path))
         if not capture.isOpened():

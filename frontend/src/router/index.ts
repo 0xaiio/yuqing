@@ -8,6 +8,7 @@ import PeopleCorrectionsView from '../views/PeopleCorrectionsView.vue'
 import PeopleView from '../views/PeopleView.vue'
 import SearchView from '../views/SearchView.vue'
 import SourcesView from '../views/SourcesView.vue'
+import VideosView from '../views/VideosView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -24,8 +25,16 @@ const router = createRouter({
           path: '/search',
           component: SearchView,
           meta: {
-            title: '自然语言与向量检索',
+            title: '图片自然搜索',
             description: '用一句话找回跨来源图片，也支持上传参考图做相似检索。',
+          },
+        },
+        {
+          path: '/videos',
+          component: VideosView,
+          meta: {
+            title: '视频检索与浏览',
+            description: '支持文本搜视频、按视频样例搜视频，并查看视频中的人物和场景聚合结果。',
           },
         },
         {

@@ -67,6 +67,34 @@ export interface Photo {
   created_at: string
 }
 
+export interface Video {
+  id: number
+  source_id: number | null
+  source_kind: SourceKind | null
+  source_name: string | null
+  original_path: string
+  storage_path: string
+  thumbnail_path: string | null
+  thumbnail_asset_url: string | null
+  sha256: string
+  caption: string | null
+  ocr_text: string | null
+  people: string[]
+  scene_tags: string[]
+  object_tags: string[]
+  face_clusters: string[]
+  face_names: string[]
+  face_count: number
+  vector_ready: boolean
+  duration_seconds: number | null
+  frame_width: number | null
+  frame_height: number | null
+  fps: number | null
+  sampled_frame_count: number
+  taken_at: string | null
+  created_at: string
+}
+
 export interface SearchHit {
   score: number
   photo: Photo
@@ -86,6 +114,16 @@ export interface SearchQueryPayload {
 export interface SearchResponse {
   total: number
   hits: SearchHit[]
+}
+
+export interface VideoSearchHit {
+  score: number
+  video: Video
+}
+
+export interface VideoSearchResponse {
+  total: number
+  hits: VideoSearchHit[]
 }
 
 export interface FaceCluster {
