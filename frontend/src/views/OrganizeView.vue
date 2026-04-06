@@ -91,6 +91,11 @@ async function loadCandidates(showBusy = true) {
   }
 }
 
+function handleSelectCategory(category: CleanupCategory) {
+  activeCategory.value = category
+  void loadCandidates()
+}
+
 async function removePhotos(photoIds: number[], successMessage: string) {
   for (const photoId of photoIds) {
     await deletePhoto(photoId)
@@ -245,10 +250,7 @@ onMounted(() => {
           type="button"
           class="cleanup-category-card"
           :class="{ active: activeCategory === item.value }"
-          @click="
-            activeCategory = item.value;
-            void loadCandidates();
-          "
+          @click="handleSelectCategory(item.value)"
         >
           <strong>{{ item.label }}</strong>
           <span>{{ item.summary }}</span>
