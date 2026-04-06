@@ -17,20 +17,22 @@ class MediaLibraryService:
         self.settings = settings or get_settings()
         self.repository = GalleryRepository(session)
 
-    def delete_photo(self, photo_id: int) -> bool:
+    def delete_photo(self, photo_id: int, delete_source_file: bool = False) -> bool:
         photo = self.repository.get_photo(photo_id)
         if photo is None:
             return False
 
         photo_labels = decode_json_list(photo.face_clusters)
         storage_path = Path(photo.storage_path)
+        if delete_source_file:
+            self._delete_original_source_file(photo.original_path, photo.source_id, storage_path)
 
         self.repository.delete_photo(photo)
         storage_path.unlink(missing_ok=True)
         self._cleanup_face_clusters(photo_labels)
         return True
 
-    def delete_video(self, video_id: int) -> bool:
+    def delete_video(self, video_id: int, delete_source_file: bool = False) -> bool:
         video = self.repository.get_video(video_id)
         if video is None:
             return False
@@ -38,6 +40,8 @@ class MediaLibraryService:
         video_labels = decode_json_list(video.face_clusters)
         storage_path = Path(video.storage_path)
         thumbnail_path = Path(video.thumbnail_path) if video.thumbnail_path else None
+        if delete_source_file:
+            self._delete_original_source_file(video.original_path, video.source_id, storage_path)
 
         self.repository.delete_video(video)
         storage_path.unlink(missing_ok=True)
@@ -113,6 +117,53 @@ class MediaLibraryService:
         if not target_dir.exists():
             return
         shutil.rmtree(target_dir, ignore_errors=True)
+
+    def _delete_original_source_file(
+        self,
+        original_path_value: str,
+        source_id: int | None,
+        storage_path: Path,
+    ) -> None:
+        if source_id is None:
+            return
+
+        source = self.repository.get_source(source_id)
+        if source is None:
+            return
+
+        original_path = Path(original_path_value)
+        if not original_path.exists():
+            return
+
+        original_resolved = original_path.resolve()
+        source_root = Path(source.root_path).resolve()
+        storage_resolved = storage_path.resolve()
+
+        if not self._is_within(original_resolved, source_root):
+            return
+
+        if original_resolved == storage_resolved:
+            return
+
+        original_path.unlink()
+        self._prune_empty_source_directories(original_path.parent, source_root)
+
+    def _prune_empty_source_directories(self, start_dir: Path, root_dir: Path) -> None:
+        current = start_dir
+        while True:
+            try:
+                current_resolved = current.resolve()
+            except FileNotFoundError:
+                break
+
+            if current_resolved == root_dir:
+                break
+            if not self._is_within(current_resolved, root_dir):
+                break
+            if not current.exists() or any(current.iterdir()):
+                break
+            current.rmdir()
+            current = current.parent
 
     @staticmethod
     def _is_within(target: Path, root: Path) -> bool:

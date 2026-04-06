@@ -80,8 +80,15 @@ export async function getPhoto(photoId: number): Promise<Photo> {
   return response.data
 }
 
-export async function deletePhoto(photoId: number): Promise<void> {
-  await api.delete(`/photos/${photoId}`)
+export async function deletePhoto(
+  photoId: number,
+  options: { deleteSourceFile?: boolean } = { deleteSourceFile: true },
+): Promise<void> {
+  await api.delete(`/photos/${photoId}`, {
+    params: {
+      delete_source_file: Boolean(options.deleteSourceFile),
+    },
+  })
 }
 
 export async function getVideo(videoId: number): Promise<Video> {
@@ -89,8 +96,15 @@ export async function getVideo(videoId: number): Promise<Video> {
   return response.data
 }
 
-export async function deleteVideo(videoId: number): Promise<void> {
-  await api.delete(`/videos/${videoId}`)
+export async function deleteVideo(
+  videoId: number,
+  options: { deleteSourceFile?: boolean } = { deleteSourceFile: true },
+): Promise<void> {
+  await api.delete(`/videos/${videoId}`, {
+    params: {
+      delete_source_file: Boolean(options.deleteSourceFile),
+    },
+  })
 }
 
 export async function reanalyzePhoto(photoId: number): Promise<Photo> {

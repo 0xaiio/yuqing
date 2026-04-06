@@ -201,9 +201,16 @@ def get_photo(photo_id: int, session: Session = Depends(get_session)) -> PhotoRe
 @app.delete(f"{settings.api_prefix}/photos/{{photo_id}}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_photo(
     photo_id: int,
+    delete_source_file: bool = Query(default=False),
     session: Session = Depends(get_session),
 ) -> Response:
-    deleted = MediaLibraryService(session, settings).delete_photo(photo_id)
+    try:
+        deleted = MediaLibraryService(session, settings).delete_photo(
+            photo_id,
+            delete_source_file=delete_source_file,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     if not deleted:
         raise HTTPException(status_code=404, detail="Photo not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -248,9 +255,16 @@ def get_video(video_id: int, session: Session = Depends(get_session)) -> VideoRe
 @app.delete(f"{settings.api_prefix}/videos/{{video_id}}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_video(
     video_id: int,
+    delete_source_file: bool = Query(default=False),
     session: Session = Depends(get_session),
 ) -> Response:
-    deleted = MediaLibraryService(session, settings).delete_video(video_id)
+    try:
+        deleted = MediaLibraryService(session, settings).delete_video(
+            video_id,
+            delete_source_file=delete_source_file,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     if not deleted:
         raise HTTPException(status_code=404, detail="Video not found")
     return Response(status_code=status.HTTP_204_NO_CONTENT)

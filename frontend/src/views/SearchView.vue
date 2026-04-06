@@ -279,12 +279,16 @@ async function handleFindSimilar() {
   }
 }
 
-async function removePhotosByIds(photoIds: number[], successMessage: string) {
+async function removePhotosByIds(
+  photoIds: number[],
+  successMessage: string,
+  deleteSourceFile = true,
+) {
   const uniqueIds = Array.from(new Set(photoIds))
   const idSet = new Set(uniqueIds)
 
   for (const photoId of uniqueIds) {
-    await deletePhoto(photoId)
+    await deletePhoto(photoId, { deleteSourceFile })
   }
 
   hits.value = hits.value.filter((hit) => !idSet.has(hit.photo.id))
