@@ -1,147 +1,85 @@
 # 跨源 AI 图片 / 视频智能管理系统
 
-这是一个面向 Windows 桌面场景的 AI 媒体管理项目，目标是把微信目录、QQ 目录、本地图库、拍照图片以及视频统一纳入一个可检索、可归档、可自动分析的系统。
+面向 Windows 桌面场景的本地优先媒体管理系统。项目统一接入微信目录、QQ 目录、本地图库、拍照导入与视频文件，完成多源归档、OCR、人物识别、场景标签、自然语言检索、以图搜图、以视频搜视频，以及基于人物头像的图片 / 视频检索。
 
 ## 当前状态
 
 当前已经完成：
 
-- 多源目录接入
+- 多源目录接入：`local_folder`、`wechat_folder`、`qq_folder`
 - 手动导入 + 实时目录监听
-- SHA256 + pHash 去重
-- 本地 OCR + 可配置视觉模型分析
-- 人物库、人物参考图上传、删除人物、删除单张参考图
-- 自然语言检索、标签检索、以图搜图、按人物图检索
-- 人脸簇独立管理
+- 图片与视频的统一入库、去重、标签化
+- `SCRFD + AdaFace` 人脸检测 / 识别链路
+- 人物库、参考图上传、删除人物、删除人物部分参考图
 - 批量人物标注校正
 - 阈值可视化调参
-- 人脸检索评估脚本
-
-当前已完成的视频基础能力：
-
-- 来源监听和导入流程已支持视频文件
-- 已新增视频数据模型与序列化结构
-- 已新增视频列表 / 详情 / 原文件 / 缩略图后端 API
-- 视频导入时会执行抽帧、人物聚合和向量生成基础链路
-- 视频元数据会入库：时长、分辨率、fps、采样帧数
-- 已支持文本搜视频、按视频样例搜视频、相似视频
-- 已新增视频页面、视频卡片和视频详情抽屉
-
-视频扩展专项路线见：
-
-- [docs/video-support-readme.md](./docs/video-support-readme.md)
-
-## 当前人脸方案
-
-系统当前采用：
-
-- `SCRFD`：人脸检测
-- `AdaFace`：人脸 embedding
-
-默认本地部署配置：
-
-- 检测模型：`buffalo_sc / det_500m.onnx`
-- 识别模型：`minchul/cvlface_adaface_ir50_webface4m`
-
-专项实施说明见：
-
-- [docs/scrfd-adaface-readme.md](./docs/scrfd-adaface-readme.md)
-
-## 视频模型路线
-
-视频扩展当前按下面这条深度学习路线推进：
-
-- 人物检测与识别：`SCRFD + AdaFace`
-- 视频检索向量：`SigLIP2`
-- 多帧场景理解：`Qwen2.5-VL`
-- 抽帧策略：第一阶段均匀抽帧，第二阶段升级到 `TransNetV2`
-
-说明：
-
-- 当前已经落地的是视频导入、抽帧、人物聚合、视频向量生成、文本搜视频和按视频搜视频
-- 尚未完成的是“按人物头像搜视频”和独立的视频检索评估脚本
+- 图片检索：自然语言、标签组合、以图搜图、按人物头像搜图片
+- 视频检索：文本搜视频、以视频搜视频、相似视频、按人物头像搜视频
+- 检索评估脚本：图片检索评估、视频检索评估
 
 ## 技术栈
 
-- 桌面端：`Tauri + Vue3 + Element Plus`
+- 桌面端：`Tauri + Vue 3 + Element Plus`
 - 后端：`FastAPI + SQLModel + SQLite`
-- 图片 / 视频存储：本地文件系统
 - OCR：`RapidOCR`
-- 视觉分析：`OpenAI-compatible` 多模态接口
 - 人脸检测：`SCRFD`
 - 人脸识别：`AdaFace`
+- 图片向量：本地轻量向量服务
 - 视频向量：`SigLIP2`
-- 实时监听：`watchdog`
+- 视频摘要 / 场景理解：`Qwen2.5-VL`
+- 目录监听：`watchdog`
 
-## 已有能力
+## 核心能力
 
 ### 1. 多源接入
 
-- 支持 `local_folder`、`wechat_folder`、`qq_folder`
-- 支持桌面端直接配置来源目录
-- 在 Tauri 桌面壳中支持原生目录选择器
-- 来源监听现在同时支持图片和视频文件
+- 配置并管理图片 / 视频来源目录
+- Windows 桌面壳内支持原生目录选择器
+- 支持实时监听新增文件并自动入库
 
-### 2. 图片分析与检索
+### 2. 图片能力
 
-- 本地 OCR：提取图片中的文字
-- 远程视觉模型：生成中文摘要、场景标签、物体标签
-- 图片重分析
-- 人物名检索、人物头像检索、自然语言检索、相似图检索
+- OCR 文字提取
+- 人物、场景、物体标签生成
+- 参考人物图建库
+- 按人名、人物头像、自然语言描述搜索图片
+- 相似图检索
 
-### 3. 视频基础能力
+### 3. 视频能力
 
-- 视频导入时自动抽帧
-- 聚合视频中的已知人物识别结果
-- 为视频生成缩略图
-- 保存视频摘要、OCR 聚合文本、人物、场景、物体标签
-- 生成视频向量，供后续视频检索使用
-- 支持视频列表、视频详情、原文件播放与缩略图访问
-
-### 4. 视频检索
-
+- 自动抽帧、缩略图生成、时长 / 分辨率 / FPS 采集
+- 聚合视频中的人物、场景、物体标签
 - 支持文本搜视频
 - 支持按视频样例搜视频
+- 支持按人物头像搜视频
 - 支持相似视频检索
-- 支持在视频搜索中直接写人物名
-- 已新增 `/videos` 视频浏览与搜索页面
 
-### 5. 批量人物标注校正
+### 4. 人脸工程能力
 
-- 新增“批量人物标注校正”页面
-- 以人脸簇为粒度批量绑定到当前人物
-- 支持从当前人物批量解绑错误绑定的人脸簇
+- 人脸簇独立管理页
+- 人物库管理页
+- 批量人物标注校正页
+- 人脸识别阈值可视化调参页
 
-### 6. 阈值可视化调参
+## 关键模型路线
 
-- 新增“阈值可视化调参”页面
-- 可调整人脸检测置信度、NMS、聚类阈值和人物识别阈值
-- 支持保存阈值与保存后重建索引
+### 人脸识别
 
-### 7. 评估脚本
+- 检测：`SCRFD`
+- 识别：`AdaFace`
 
-新增脚本：
+说明：
 
-- `scripts/evaluate-face-retrieval.py`
+- 图片与视频共用同一套人脸 embedding 语义空间
+- “按人物头像搜图片 / 搜视频”复用同一套人物识别评分逻辑
 
-用于评估当前人物检索效果，输出：
+### 视频理解
 
-- `MRR`
-- `Hit@1 / Hit@5 / Hit@10`
+- 视频向量：`SigLIP2`
+- 多帧摘要与标签：`Qwen2.5-VL`
+- 抽帧策略：当前为均匀抽帧，后续可升级到 `TransNetV2`
 
-## 当前视频 API
-
-已可用：
-
-- `GET /api/v1/videos`
-- `GET /api/v1/videos/{video_id}`
-- `GET /api/v1/videos/{video_id}/asset`
-- `GET /api/v1/videos/{video_id}/thumbnail`
-- `GET /api/v1/videos/{video_id}/similar`
-- `POST /api/v1/search/videos`
-- `POST /api/v1/search/videos/by-video`
-
-## 项目结构
+## 目录结构
 
 ```text
 docs/
@@ -151,38 +89,12 @@ docs/
   windows-build-tools.md
 backend/
   app/
-    adaface_model.py
-    ai.py
-    config.py
-    connectors.py
-    database.py
-    embeddings.py
-    face_alignment.py
-    face_clustering.py
-    face_engine.py
-    face_tuning.py
-    import_pipeline.py
-    main.py
-    models.py
-    people.py
-    repository.py
-    schemas.py
-    scrfd_detector.py
-    search_service.py
-    serializers.py
-    video_embeddings.py
-    video_processing.py
-    watcher.py
 frontend/
   src/
-    components/
-    layouts/
-    router/
-    services/
-    views/
   src-tauri/
 scripts/
   evaluate-face-retrieval.py
+  evaluate-video-retrieval.py
   start-local.ps1
 start-local.bat
 ```
@@ -199,6 +111,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-local.ps1
 
 ```bat
 start-local.bat
+```
+
+### 启动 Tauri 桌面壳
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local.ps1 -WithTauri
 ```
 
 ## 手动启动
@@ -236,6 +154,82 @@ npm install
 npm run dev
 ```
 
+## 主要 API
+
+### 通用
+
+- `GET /api/v1/health`
+- `GET /api/v1/sources`
+- `POST /api/v1/sources`
+- `POST /api/v1/sources/{source_id}/import`
+- `POST /api/v1/sources/{source_id}/watch/start`
+- `POST /api/v1/sources/{source_id}/watch/stop`
+
+### 图片
+
+- `GET /api/v1/photos`
+- `GET /api/v1/photos/{photo_id}`
+- `GET /api/v1/photos/{photo_id}/asset`
+- `GET /api/v1/photos/{photo_id}/similar`
+- `POST /api/v1/photos/{photo_id}/reanalyze`
+- `POST /api/v1/search`
+- `POST /api/v1/search/by-image`
+- `POST /api/v1/search/by-person-image`
+
+### 视频
+
+- `GET /api/v1/videos`
+- `GET /api/v1/videos/{video_id}`
+- `GET /api/v1/videos/{video_id}/asset`
+- `GET /api/v1/videos/{video_id}/thumbnail`
+- `GET /api/v1/videos/{video_id}/similar`
+- `POST /api/v1/search/videos`
+- `POST /api/v1/search/videos/by-video`
+- `POST /api/v1/search/videos/by-person-image`
+
+### 人物 / 人脸
+
+- `GET /api/v1/people`
+- `POST /api/v1/people`
+- `POST /api/v1/people/{person_id}/rename`
+- `DELETE /api/v1/people/{person_id}`
+- `GET /api/v1/people/{person_id}/samples`
+- `POST /api/v1/people/{person_id}/samples`
+- `DELETE /api/v1/people/{person_id}/samples/{sample_id}`
+- `GET /api/v1/people/{person_id}/photos`
+- `GET /api/v1/people/{person_id}/correction-candidates`
+- `POST /api/v1/people/{person_id}/cluster-corrections`
+- `GET /api/v1/face-clusters`
+- `POST /api/v1/face-clusters/{cluster_label}/rename`
+- `GET /api/v1/face-clusters/{cluster_label}/photos`
+- `GET /api/v1/face-tuning`
+- `POST /api/v1/face-tuning/preview`
+- `POST /api/v1/face-tuning/settings`
+
+## 评估脚本
+
+### 图片人物检索评估
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\evaluate-face-retrieval.py --top-k 1 5 10
+```
+
+输出：
+
+- `MRR`
+- `Hit@1 / Hit@5 / Hit@10`
+
+### 视频人物检索评估
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\evaluate-video-retrieval.py --top-k 1 5 10
+```
+
+输出：
+
+- `MRR`
+- `Hit@1 / Hit@5 / Hit@10`
+
 ## 环境变量
 
 复制 `backend/.env.example` 到 `backend/.env` 后，可按需配置：
@@ -262,25 +256,17 @@ VIDEO_EMBEDDING_MODEL_ID=google/siglip2-base-patch16-224
 VIDEO_EMBEDDING_DEVICE=cpu
 ```
 
-## 验证记录
+## 当前验证
 
 当前已验证：
 
 - `python -m compileall backend/app`
+- `python -m compileall scripts/evaluate-face-retrieval.py scripts/evaluate-video-retrieval.py`
 - `npm run build`
-- `FastAPI TestClient`：
-  - `GET /api/v1/health`
-  - `GET /api/v1/videos`
-  - `POST /api/v1/search/videos`
-- 临时闭环烟测：
-  - 生成一个临时 mp4
-  - 导入视频成功
-  - 读取视频缩略图成功
-  - `POST /api/v1/search/videos/by-video` 成功命中
+- `FastAPI TestClient` 基础烟测
 
 ## 许可证与使用边界
 
-- `SCRFD` 模型来自 InsightFace 发布包，使用前请确认对应模型的许可边界
-- `AdaFace` 权重来自官方 Hugging Face 仓库，使用前同样建议核对模型许可与商用条件
-- `SigLIP2` 和视频理解模型同样建议在实际商用前核对各自许可
-- 当前仓库更适合作为课程项目、自用工具或内部原型
+- `SCRFD` 模型通常来自 InsightFace 发行包，使用前请核对模型许可
+- `AdaFace`、`SigLIP2`、`Qwen2.5-VL` 在实际商用前也建议逐项确认许可条件
+- 当前仓库更适合作为课程项目、研究原型、自用工具或内部原型系统

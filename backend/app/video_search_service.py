@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from app.config import get_settings
 from app.embeddings import cosine_similarity, deserialize_vector, tokenize_text
+from app.face_clustering import FaceClusteringService
 from app.repository import GalleryRepository
 from app.schemas import SearchQuery, VideoSearchHit, VideoSearchResponse, decode_json_list
 from app.serializers import build_video_read
@@ -12,6 +14,8 @@ class VideoSearchService:
         self.session = session
         self.repository = GalleryRepository(session)
         self.vectorizer = VideoEmbeddingService()
+        self.settings = get_settings()
+        self.face_service = FaceClusteringService(session, self.settings)
 
     def search(self, payload: SearchQuery) -> VideoSearchResponse:
         query_text = payload.text.strip().lower()
@@ -112,6 +116,45 @@ class VideoSearchService:
             ).hits
             if hit.video.id != video_id
         ]
+        return VideoSearchResponse(total=len(hits), hits=hits[:limit])
+
+    def search_by_person_embedding(
+        self,
+        query_embedding: list[float],
+        limit: int = 20,
+    ) -> VideoSearchResponse:
+        cluster_scores: dict[str, float] = {}
+        for person, score in self.face_service.rank_person_profiles(query_embedding, limit=3):
+            if score < self.settings.person_recognition_similarity_threshold:
+                continue
+            for cluster in self.repository.list_face_clusters_by_person(person.id or 0, limit=5000):
+                cluster_scores[cluster.label] = max(cluster_scores.get(cluster.label, 0.0), score)
+
+        for cluster in self.repository.list_face_clusters(limit=5000):
+            if not cluster.centroid:
+                continue
+            score = cosine_similarity(query_embedding, deserialize_vector(cluster.centroid))
+            if score < self.settings.person_recognition_similarity_threshold:
+                continue
+            cluster_scores[cluster.label] = max(cluster_scores.get(cluster.label, 0.0), score)
+
+        if not cluster_scores:
+            return VideoSearchResponse(total=0, hits=[])
+
+        hits: list[VideoSearchHit] = []
+        for video in self.repository.list_searchable_videos(limit=5000):
+            video_face_clusters = decode_json_list(video.face_clusters)
+            best_score = max((cluster_scores.get(label, 0.0) for label in video_face_clusters), default=0.0)
+            if best_score <= 0:
+                continue
+            hits.append(
+                VideoSearchHit(
+                    score=best_score,
+                    video=build_video_read(self.repository, video),
+                )
+            )
+
+        hits.sort(key=lambda item: (item.score, item.video.created_at), reverse=True)
         return VideoSearchResponse(total=len(hits), hits=hits[:limit])
 
     def _detect_person_names(self, query_text: str) -> list[str]:

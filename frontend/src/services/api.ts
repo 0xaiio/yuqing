@@ -253,6 +253,25 @@ export async function searchByVideo(file: File, limit = 24): Promise<VideoSearch
   return response.data
 }
 
+export async function searchVideosByPersonImage(
+  file: File,
+  limit = 24,
+): Promise<VideoSearchResponse> {
+  const formData = new FormData()
+  formData.set('file', file)
+  formData.set('limit', String(limit))
+  const response = await api.post<VideoSearchResponse>(
+    '/search/videos/by-person-image',
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    },
+  )
+  return response.data
+}
+
 export function getPhotoAssetUrl(photoId: number): string {
   return `${apiBaseUrl}/photos/${photoId}/asset`
 }

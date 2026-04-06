@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Film, Search, UploadFilled } from '@element-plus/icons-vue'
+import { Film, Search, UploadFilled, UserFilled } from '@element-plus/icons-vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
@@ -12,6 +12,7 @@ import {
   listVideos,
   searchByVideo,
   searchVideos,
+  searchVideosByPersonImage,
 } from '../services/api'
 import type { PersonProfile, SearchMode, SourceKind, Video, VideoSearchHit } from '../types'
 import {
@@ -22,7 +23,7 @@ import {
 } from '../utils/format'
 
 const loading = ref(false)
-const mode = ref<'recent' | 'search' | 'video' | 'similar'>('recent')
+const mode = ref<'recent' | 'search' | 'video' | 'personImage' | 'similar'>('recent')
 const hits = ref<VideoSearchHit[]>([])
 const peopleProfiles = ref<PersonProfile[]>([])
 
@@ -31,8 +32,11 @@ const selectedVideo = ref<Video | null>(null)
 const findingSimilar = ref(false)
 
 const videoSearching = ref(false)
+const personImageSearching = ref(false)
 const videoQueryName = ref('')
+const personQueryImageName = ref('')
 const videoInputRef = ref<HTMLInputElement | null>(null)
+const personImageInputRef = ref<HTMLInputElement | null>(null)
 
 const form = reactive<{
   text: string
@@ -55,10 +59,19 @@ const form = reactive<{
 })
 
 const resultTitle = computed(() => {
-  if (mode.value === 'video') return '视频样例检索结果'
+  if (mode.value === 'video') return '按视频样例检索结果'
+  if (mode.value === 'personImage') return '按人物头像检索视频结果'
   if (mode.value === 'similar') return '相似视频'
   if (mode.value === 'search') return '视频搜索结果'
   return '最近导入的视频'
+})
+
+const queryHint = computed(() => {
+  if (mode.value === 'video' && videoQueryName.value) return `当前视频样例：${videoQueryName.value}`
+  if (mode.value === 'personImage' && personQueryImageName.value) {
+    return `当前人物头像：${personQueryImageName.value}`
+  }
+  return ''
 })
 
 const quickQueries = [
@@ -127,6 +140,7 @@ function resetFilters() {
   form.sourceKinds = []
   form.mode = 'hybrid'
   videoQueryName.value = ''
+  personQueryImageName.value = ''
   void loadRecentVideos()
 }
 
@@ -139,6 +153,10 @@ function openVideoPicker() {
   videoInputRef.value?.click()
 }
 
+function openPersonImagePicker() {
+  personImageInputRef.value?.click()
+}
+
 async function handleVideoFileChange(event: Event) {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
@@ -147,14 +165,36 @@ async function handleVideoFileChange(event: Event) {
   videoSearching.value = true
   try {
     videoQueryName.value = file.name
+    personQueryImageName.value = ''
     const response = await searchByVideo(file, form.limit)
     hits.value = response.hits
     mode.value = 'video'
-    ElMessage.success('已切换到视频样例检索结果')
+    ElMessage.success('已切换到按视频样例检索结果')
   } catch (error) {
     ElMessage.error(resolveErrorMessage(error, '按视频检索失败'))
   } finally {
     videoSearching.value = false
+    target.value = ''
+  }
+}
+
+async function handlePersonImageFileChange(event: Event) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+
+  personImageSearching.value = true
+  try {
+    personQueryImageName.value = file.name
+    videoQueryName.value = ''
+    const response = await searchVideosByPersonImage(file, form.limit)
+    hits.value = response.hits
+    mode.value = 'personImage'
+    ElMessage.success('已切换到按人物头像检索视频结果')
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, '按人物头像搜视频失败'))
+  } finally {
+    personImageSearching.value = false
     target.value = ''
   }
 }
@@ -212,7 +252,7 @@ onMounted(() => {
       <div class="section-head">
         <h4>视频检索</h4>
         <span class="section-tip">
-          支持文本搜视频、按视频样例搜视频，并聚合展示视频中的人物、场景和对象标签。
+          支持文本搜视频、按视频样例搜视频、按人物头像搜视频，并聚合展示视频中的人物、场景和物体标签。
         </span>
       </div>
 
@@ -248,8 +288,8 @@ onMounted(() => {
               :value="person.name"
             />
           </el-select>
-          <el-input v-model="form.sceneText" placeholder="场景标签，如 海边、室内" clearable />
-          <el-input v-model="form.objectText" placeholder="物体标签，如 猫、乐高" clearable />
+          <el-input v-model="form.sceneText" placeholder="场景标签，例如 海边、室内" clearable />
+          <el-input v-model="form.objectText" placeholder="物体标签，例如 猫、乐高" clearable />
           <el-select v-model="form.sourceKinds" multiple collapse-tags placeholder="来源类型">
             <el-option
               v-for="option in sourceKindOptions"
@@ -283,9 +323,24 @@ onMounted(() => {
         <el-button plain :icon="UploadFilled" :loading="videoSearching" @click="openVideoPicker">
           以视频搜视频
         </el-button>
+        <input
+          ref="personImageInputRef"
+          class="hidden-input"
+          type="file"
+          accept="image/*"
+          @change="handlePersonImageFileChange"
+        />
+        <el-button
+          plain
+          :icon="UserFilled"
+          :loading="personImageSearching"
+          @click="openPersonImagePicker"
+        >
+          按人物头像搜视频
+        </el-button>
         <el-button plain :icon="Film" @click="loadRecentVideos">最近视频</el-button>
         <el-button plain @click="resetFilters">重置</el-button>
-        <span v-if="videoQueryName" class="query-hint">当前样例：{{ videoQueryName }}</span>
+        <span v-if="queryHint" class="query-hint">{{ queryHint }}</span>
       </div>
     </section>
 

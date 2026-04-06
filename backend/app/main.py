@@ -416,6 +416,28 @@ async def search_videos_by_video(
         target_path.unlink(missing_ok=True)
 
 
+@app.post(f"{settings.api_prefix}/search/videos/by-person-image", response_model=VideoSearchResponse)
+async def search_videos_by_person_image(
+    file: UploadFile = File(...),
+    limit: int = Form(default=24),
+    session: Session = Depends(get_session),
+) -> VideoSearchResponse:
+    suffix = Path(file.filename or "person-video-query.jpg").suffix.lower() or ".jpg"
+    target_path = settings.search_upload_root / f"person-video-query-{uuid4().hex}{suffix}"
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Empty image upload")
+
+    target_path.write_bytes(payload)
+    try:
+        embeddings = FaceClusteringService(session, settings).extract_face_embeddings(target_path)
+        if not embeddings:
+            raise HTTPException(status_code=400, detail="No face detected in the uploaded query image")
+        return VideoSearchService(session).search_by_person_embedding(embeddings[0], limit=limit)
+    finally:
+        target_path.unlink(missing_ok=True)
+
+
 @app.get(f"{settings.api_prefix}/face-clusters", response_model=list[FaceClusterRead])
 def list_face_clusters(
     limit: int = Query(default=50, ge=1, le=200),
