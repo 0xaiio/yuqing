@@ -16,6 +16,7 @@ from app.embeddings import VectorEmbeddingService, serialize_vector
 from app.face_clustering import FaceClusteringService
 from app.face_tuning import FaceRuntimeConfigService, FaceTuningService
 from app.import_pipeline import ImportPipeline
+from app.media_library import MediaLibraryService
 from app.people import PersonLibraryService
 from app.repository import GalleryRepository
 from app.schemas import (
@@ -197,6 +198,17 @@ def get_photo(photo_id: int, session: Session = Depends(get_session)) -> PhotoRe
     return build_photo_read(repository, photo)
 
 
+@app.delete(f"{settings.api_prefix}/photos/{{photo_id}}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_photo(
+    photo_id: int,
+    session: Session = Depends(get_session),
+) -> Response:
+    deleted = MediaLibraryService(session, settings).delete_photo(photo_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @app.get(f"{settings.api_prefix}/photos/{{photo_id}}/asset")
 def get_photo_asset(
     photo_id: int,
@@ -231,6 +243,17 @@ def get_video(video_id: int, session: Session = Depends(get_session)) -> VideoRe
     if video is None:
         raise HTTPException(status_code=404, detail="Video not found")
     return build_video_read(repository, video)
+
+
+@app.delete(f"{settings.api_prefix}/videos/{{video_id}}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_video(
+    video_id: int,
+    session: Session = Depends(get_session),
+) -> Response:
+    deleted = MediaLibraryService(session, settings).delete_video(video_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Video not found")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.get(f"{settings.api_prefix}/videos/{{video_id}}/asset")
@@ -503,6 +526,20 @@ def list_face_cluster_photos(
     )
 
 
+@app.get(f"{settings.api_prefix}/face-clusters/{{cluster_label}}/videos", response_model=VideoSearchResponse)
+def list_face_cluster_videos(
+    cluster_label: str,
+    limit: int = Query(default=48, ge=1, le=100),
+    session: Session = Depends(get_session),
+) -> VideoSearchResponse:
+    repository = GalleryRepository(session)
+    cluster = repository.get_face_cluster_by_label(cluster_label)
+    if cluster is None:
+        raise HTTPException(status_code=404, detail="Face cluster not found")
+
+    return MediaLibraryService(session, settings).list_videos_by_face_clusters([cluster_label], limit=limit)
+
+
 @app.get(f"{settings.api_prefix}/people", response_model=list[PersonRead])
 def list_people(
     limit: int = Query(default=100, ge=1, le=500),
@@ -662,6 +699,20 @@ def list_person_photos(
             limit=limit,
         )
     )
+
+
+@app.get(f"{settings.api_prefix}/people/{{person_id}}/videos", response_model=VideoSearchResponse)
+def list_person_videos(
+    person_id: int,
+    limit: int = Query(default=48, ge=1, le=100),
+    session: Session = Depends(get_session),
+) -> VideoSearchResponse:
+    repository = GalleryRepository(session)
+    person = repository.get_person_profile(person_id)
+    if person is None:
+        raise HTTPException(status_code=404, detail="Person not found")
+
+    return MediaLibraryService(session, settings).list_videos_by_person(person_id, limit=limit)
 
 
 @app.get(

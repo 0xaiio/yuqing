@@ -15,6 +15,8 @@
 - 阈值可视化调参
 - 图片检索：自然语言、标签组合、以图搜图、按人物头像搜图片
 - 视频检索：文本搜视频、以视频搜视频、相似视频、按人物头像搜视频
+- 删除能力：删除图片、删除视频，并自动清理视频缩略图 / 抽帧缓存 / 失效人脸簇引用
+- 人物页与人脸簇页同时展示相关图片和相关视频
 - 检索评估脚本：图片检索评估、视频检索评估
 
 ## 技术栈
@@ -44,6 +46,7 @@
 - 参考人物图建库
 - 按人名、人物头像、自然语言描述搜索图片
 - 相似图检索
+- 在搜索页、人物页、人脸簇页里删除不喜欢、模糊或误匹配的图片
 
 ### 3. 视频能力
 
@@ -53,6 +56,7 @@
 - 支持按视频样例搜视频
 - 支持按人物头像搜视频
 - 支持相似视频检索
+- 在视频页、人物页、人脸簇页里删除误匹配或低价值视频
 
 ### 4. 人脸工程能力
 
@@ -60,6 +64,7 @@
 - 人物库管理页
 - 批量人物标注校正页
 - 人脸识别阈值可视化调参页
+- 人脸簇相关图片 / 视频统一查看与清理
 
 ## 关键模型路线
 
@@ -169,6 +174,7 @@ npm run dev
 
 - `GET /api/v1/photos`
 - `GET /api/v1/photos/{photo_id}`
+- `DELETE /api/v1/photos/{photo_id}`
 - `GET /api/v1/photos/{photo_id}/asset`
 - `GET /api/v1/photos/{photo_id}/similar`
 - `POST /api/v1/photos/{photo_id}/reanalyze`
@@ -180,6 +186,7 @@ npm run dev
 
 - `GET /api/v1/videos`
 - `GET /api/v1/videos/{video_id}`
+- `DELETE /api/v1/videos/{video_id}`
 - `GET /api/v1/videos/{video_id}/asset`
 - `GET /api/v1/videos/{video_id}/thumbnail`
 - `GET /api/v1/videos/{video_id}/similar`
@@ -197,11 +204,13 @@ npm run dev
 - `POST /api/v1/people/{person_id}/samples`
 - `DELETE /api/v1/people/{person_id}/samples/{sample_id}`
 - `GET /api/v1/people/{person_id}/photos`
+- `GET /api/v1/people/{person_id}/videos`
 - `GET /api/v1/people/{person_id}/correction-candidates`
 - `POST /api/v1/people/{person_id}/cluster-corrections`
 - `GET /api/v1/face-clusters`
 - `POST /api/v1/face-clusters/{cluster_label}/rename`
 - `GET /api/v1/face-clusters/{cluster_label}/photos`
+- `GET /api/v1/face-clusters/{cluster_label}/videos`
 - `GET /api/v1/face-tuning`
 - `POST /api/v1/face-tuning/preview`
 - `POST /api/v1/face-tuning/settings`
@@ -261,9 +270,14 @@ VIDEO_EMBEDDING_DEVICE=cpu
 当前已验证：
 
 - `python -m compileall backend/app`
-- `python -m compileall scripts/evaluate-face-retrieval.py scripts/evaluate-video-retrieval.py`
 - `npm run build`
 - `FastAPI TestClient` 基础烟测
+- 临时构造图片 / 视频 / 人脸簇 / 人物后验证：
+  - `GET /api/v1/people/{person_id}/videos`
+  - `GET /api/v1/face-clusters/{cluster_label}/videos`
+  - `DELETE /api/v1/photos/{photo_id}`
+  - `DELETE /api/v1/videos/{video_id}`
+  - 删除后会同步清理文件、缩略图目录和失效的人脸簇引用
 
 ## 许可证与使用边界
 

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { Picture, Search, UploadFilled, UserFilled } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 import PhotoCard from '../components/PhotoCard.vue'
 import PhotoDetailDrawer from '../components/PhotoDetailDrawer.vue'
 import {
+  deletePhoto,
   findSimilarPhotos,
   getPhoto,
   listFaceClusters,
@@ -39,6 +40,7 @@ const detailOpen = ref(false)
 const selectedPhoto = ref<Photo | null>(null)
 const reanalyzing = ref(false)
 const findingSimilar = ref(false)
+const deletingPhoto = ref(false)
 const faceClusters = ref<FaceCluster[]>([])
 const renamingLabels = ref<string[]>([])
 const peopleProfiles = ref<PersonProfile[]>([])
@@ -52,6 +54,14 @@ const personImageSearching = ref(false)
 const personQueryImagePreview = ref<string | null>(null)
 const personQueryImageName = ref('')
 const personFileInputRef = ref<HTMLInputElement | null>(null)
+
+function emitWorkspaceRefresh() {
+  window.dispatchEvent(new Event('workspace:refresh'))
+}
+
+function isMessageBoxCancel(error: unknown): boolean {
+  return error === 'cancel' || error === 'close'
+}
 
 const form = reactive<{
   text: string
@@ -233,6 +243,42 @@ async function handleFindSimilar() {
     ElMessage.error(resolveErrorMessage(error, '查找相似图片失败。'))
   } finally {
     findingSimilar.value = false
+  }
+}
+
+async function handleDeletePhoto() {
+  if (!selectedPhoto.value) return
+
+  try {
+    await ElMessageBox.confirm(
+      '删除后会移除图片归档文件，并同步清理相关的人脸簇引用。是否继续？',
+      '删除图片',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return
+    ElMessage.error(resolveErrorMessage(error, '删除图片前确认失败'))
+    return
+  }
+
+  deletingPhoto.value = true
+  try {
+    const targetId = selectedPhoto.value.id
+    await deletePhoto(targetId)
+    hits.value = hits.value.filter((hit) => hit.photo.id !== targetId)
+    selectedPhoto.value = null
+    detailOpen.value = false
+    await Promise.all([loadFaceClusterList(), loadPeopleList()])
+    emitWorkspaceRefresh()
+    ElMessage.success('图片已删除')
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, '删除图片失败'))
+  } finally {
+    deletingPhoto.value = false
   }
 }
 
@@ -544,8 +590,10 @@ onBeforeUnmount(() => {
       :reanalyzing="reanalyzing"
       :renaming-labels="renamingLabels"
       :finding-similar="findingSimilar"
+      :deleting="deletingPhoto"
       @reanalyze="handleReanalyze"
       @find-similar="handleFindSimilar"
+      @delete="handleDeletePhoto"
       @rename-face-cluster="handleRenameFaceCluster"
     />
   </div>

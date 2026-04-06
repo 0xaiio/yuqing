@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from 'vue'
-import { CopyDocument, MagicStick, PictureFilled, Search, User } from '@element-plus/icons-vue'
+import {
+  CopyDocument,
+  Delete,
+  MagicStick,
+  PictureFilled,
+  Search,
+  User,
+} from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 
 import { getPhotoAssetUrl } from '../services/api'
@@ -14,12 +21,14 @@ const props = defineProps<{
   reanalyzing: boolean
   renamingLabels: string[]
   findingSimilar: boolean
+  deleting: boolean
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [boolean]
   reanalyze: []
   findSimilar: []
+  delete: []
   renameFaceCluster: [label: string, displayName: string]
 }>()
 
@@ -28,7 +37,6 @@ const renameDrafts = reactive<Record<string, string>>({})
 const assetUrl = computed(() => (props.photo ? getPhotoAssetUrl(props.photo.id) : ''))
 const allTags = computed(() => {
   if (!props.photo) return []
-
   return [
     ...props.photo.people.map((item) => `人物 · ${item}`),
     ...props.photo.scene_tags.map((item) => `场景 · ${item}`),
@@ -54,9 +62,9 @@ watch(
 async function copyText(value: string, label: string) {
   try {
     await navigator.clipboard.writeText(value)
-    ElMessage.success(`${label}已复制。`)
+    ElMessage.success(`${label}已复制`)
   } catch {
-    ElMessage.warning(`复制${label}失败，请手动复制。`)
+    ElMessage.warning(`复制${label}失败，请手动复制`)
   }
 }
 </script>
@@ -75,21 +83,14 @@ async function copyText(value: string, label: string) {
           <h3>{{ photo?.source_name || '图片详情' }}</h3>
         </div>
         <div class="drawer-actions">
-          <el-button
-            plain
-            :icon="Search"
-            :loading="findingSimilar"
-            @click="emit('findSimilar')"
-          >
+          <el-button plain :icon="Search" :loading="findingSimilar" @click="emit('findSimilar')">
             查找相似图片
           </el-button>
-          <el-button
-            type="primary"
-            :icon="MagicStick"
-            :loading="reanalyzing"
-            @click="emit('reanalyze')"
-          >
+          <el-button type="primary" :icon="MagicStick" :loading="reanalyzing" @click="emit('reanalyze')">
             重新分析
+          </el-button>
+          <el-button type="danger" plain :icon="Delete" :loading="deleting" @click="emit('delete')">
+            删除图片
           </el-button>
         </div>
       </div>
@@ -102,13 +103,13 @@ async function copyText(value: string, label: string) {
 
       <div class="drawer-section">
         <h4>AI 摘要</h4>
-        <p class="drawer-copy">{{ photo.caption || '还没有图像描述。' }}</p>
+        <p class="drawer-copy">{{ photo.caption || '还没有图像摘要。' }}</p>
       </div>
 
       <div v-if="photo.face_clusters.length" class="drawer-section">
         <div class="drawer-section__head">
           <h4>人脸簇命名</h4>
-          <span class="section-tip">给同一个聚类分配名字后，搜索会自动可用</span>
+          <span class="section-tip">给同一聚类命名后，图片与视频里的该人物都会同步受益。</span>
         </div>
         <div class="cluster-editor-list">
           <div v-for="label in photo.face_clusters" :key="label" class="cluster-editor">
@@ -120,10 +121,7 @@ async function copyText(value: string, label: string) {
               <small>{{ label }}</small>
             </div>
             <div class="cluster-editor__form">
-              <el-input
-                v-model="renameDrafts[label]"
-                placeholder="例如：爸爸 / 小明 / 同学 A"
-              />
+              <el-input v-model="renameDrafts[label]" placeholder="例如：爸爸 / 小明 / 同学 A" />
               <el-button
                 type="primary"
                 plain
@@ -140,9 +138,7 @@ async function copyText(value: string, label: string) {
       <div v-if="allTags.length" class="drawer-section">
         <h4>标签</h4>
         <div class="tag-cloud">
-          <span v-for="tag in allTags" :key="tag" class="photo-tag">
-            {{ tag }}
-          </span>
+          <span v-for="tag in allTags" :key="tag" class="photo-tag">{{ tag }}</span>
         </div>
       </div>
 

@@ -1,20 +1,22 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Search } from '@element-plus/icons-vue'
+import { Delete, Search } from '@element-plus/icons-vue'
 
 import { getVideoAssetUrl, getVideoThumbnailUrl } from '../services/api'
 import type { Video } from '../types'
-import { formatDateTime, formatDuration } from '../utils/format'
+import { formatDateTime, formatDuration, sourceKindLabel } from '../utils/format'
 
 const props = defineProps<{
   modelValue: boolean
   video: Video | null
   findingSimilar: boolean
+  deleting: boolean
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   findSimilar: []
+  delete: []
 }>()
 
 const open = computed({
@@ -24,7 +26,6 @@ const open = computed({
 
 const assetUrl = computed(() => (props.video ? getVideoAssetUrl(props.video.id) : ''))
 const thumbnailUrl = computed(() => (props.video ? getVideoThumbnailUrl(props.video.id) : ''))
-
 const tagTexts = computed(() => {
   if (!props.video) return []
   return [
@@ -50,7 +51,7 @@ const tagTexts = computed(() => {
 
       <div class="video-drawer__section">
         <p class="eyebrow">Video Detail</p>
-        <h3>{{ video.caption || '未生成视频摘要' }}</h3>
+        <h3>{{ video.caption || '尚未生成视频摘要' }}</h3>
         <p class="drawer-copy">{{ video.ocr_text || '当前视频还没有 OCR 文本。' }}</p>
       </div>
 
@@ -59,6 +60,10 @@ const tagTexts = computed(() => {
       </div>
 
       <div class="video-meta-grid">
+        <article class="video-meta-card">
+          <span>来源类型</span>
+          <strong>{{ sourceKindLabel(video.source_kind) }}</strong>
+        </article>
         <article class="video-meta-card">
           <span>时长</span>
           <strong>{{ formatDuration(video.duration_seconds) }}</strong>
@@ -72,6 +77,10 @@ const tagTexts = computed(() => {
           <strong>{{ video.sampled_frame_count }}</strong>
         </article>
         <article class="video-meta-card">
+          <span>人脸簇</span>
+          <strong>{{ video.face_count }}</strong>
+        </article>
+        <article class="video-meta-card">
           <span>更新时间</span>
           <strong>{{ formatDateTime(video.created_at) }}</strong>
         </article>
@@ -80,6 +89,9 @@ const tagTexts = computed(() => {
       <div class="video-drawer__actions">
         <el-button type="primary" :icon="Search" :loading="findingSimilar" @click="emit('findSimilar')">
           查找相似视频
+        </el-button>
+        <el-button type="danger" plain :icon="Delete" :loading="deleting" @click="emit('delete')">
+          删除视频
         </el-button>
       </div>
     </div>
@@ -133,5 +145,6 @@ const tagTexts = computed(() => {
 .video-drawer__actions {
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
 }
 </style>

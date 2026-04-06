@@ -1,28 +1,37 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { UserFilled } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 import PhotoCard from '../components/PhotoCard.vue'
 import PhotoDetailDrawer from '../components/PhotoDetailDrawer.vue'
+import VideoCard from '../components/VideoCard.vue'
+import VideoDetailDrawer from '../components/VideoDetailDrawer.vue'
 import {
+  deletePhoto,
+  deleteVideo,
   findSimilarPhotos,
+  findSimilarVideos,
   getPhoto,
   getPhotoAssetUrl,
+  getVideo,
   listFaceClusters,
   listPhotosByFaceCluster,
+  listVideosByFaceCluster,
   reanalyzePhoto,
   renameFaceCluster,
 } from '../services/api'
-import type { FaceCluster, Photo, SearchHit } from '../types'
+import type { FaceCluster, Photo, SearchHit, Video, VideoSearchHit } from '../types'
 import { formatCount, formatDateTime, resolveErrorMessage } from '../utils/format'
 
 const clusters = ref<FaceCluster[]>([])
 const clusterLoading = ref(false)
-const photoLoading = ref(false)
+const mediaLoading = ref(false)
 const selectedClusterLabel = ref<string | null>(null)
 const clusterHits = ref<SearchHit[]>([])
-const resultTitle = ref('该人脸簇的图片')
+const clusterVideoHits = ref<VideoSearchHit[]>([])
+const photoTitle = ref('该人脸簇的图片')
+const videoTitle = ref('该人脸簇的视频')
 const renamingLabels = ref<string[]>([])
 const renameDrafts = reactive<Record<string, string>>({})
 const filterText = ref('')
@@ -32,9 +41,15 @@ const detailOpen = ref(false)
 const selectedPhoto = ref<Photo | null>(null)
 const reanalyzing = ref(false)
 const findingSimilar = ref(false)
+const deletingPhoto = ref(false)
 
-const selectedCluster = computed(() =>
-  clusters.value.find((cluster) => cluster.label === selectedClusterLabel.value) || null,
+const videoDetailOpen = ref(false)
+const selectedVideo = ref<Video | null>(null)
+const findingSimilarVideo = ref(false)
+const deletingVideo = ref(false)
+
+const selectedCluster = computed(
+  () => clusters.value.find((cluster) => cluster.label === selectedClusterLabel.value) || null,
 )
 const filteredClusters = computed(() => {
   const keyword = filterText.value.trim().toLowerCase()
@@ -50,6 +65,14 @@ const filteredClusters = computed(() => {
 })
 const namedCount = computed(() => clusters.value.filter((cluster) => cluster.named).length)
 
+function emitWorkspaceRefresh() {
+  window.dispatchEvent(new Event('workspace:refresh'))
+}
+
+function isMessageBoxCancel(error: unknown): boolean {
+  return error === 'cancel' || error === 'close'
+}
+
 function examplePhotoUrl(cluster: FaceCluster): string {
   return cluster.example_photo_id ? getPhotoAssetUrl(cluster.example_photo_id) : ''
 }
@@ -63,6 +86,7 @@ async function loadClusters(showBusy = true) {
       if (b.photo_count !== a.photo_count) return b.photo_count - a.photo_count
       return (b.latest_photo_at || '').localeCompare(a.latest_photo_at || '')
     })
+
     for (const cluster of clusters.value) {
       renameDrafts[cluster.label] = cluster.display_name || ''
     }
@@ -71,35 +95,42 @@ async function loadClusters(showBusy = true) {
     if (!selectedStillExists) {
       selectedClusterLabel.value = clusters.value[0]?.label || null
     }
+
     if (selectedClusterLabel.value) {
-      await loadClusterPhotos(selectedClusterLabel.value, false)
+      await loadClusterMedia(selectedClusterLabel.value, false)
     } else {
       clusterHits.value = []
+      clusterVideoHits.value = []
     }
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '读取人脸簇列表失败。'))
+    ElMessage.error(resolveErrorMessage(error, '读取人脸簇列表失败'))
   } finally {
     if (showBusy) clusterLoading.value = false
   }
 }
 
-async function loadClusterPhotos(clusterLabel: string, showBusy = true) {
-  if (showBusy) photoLoading.value = true
+async function loadClusterMedia(clusterLabel: string, showBusy = true) {
+  if (showBusy) mediaLoading.value = true
 
   try {
-    const response = await listPhotosByFaceCluster(clusterLabel, 48)
-    clusterHits.value = response.hits
-    resultTitle.value = '该人脸簇的图片'
+    const [photoResponse, videoResponse] = await Promise.all([
+      listPhotosByFaceCluster(clusterLabel, 48),
+      listVideosByFaceCluster(clusterLabel, 24),
+    ])
+    clusterHits.value = photoResponse.hits
+    clusterVideoHits.value = videoResponse.hits
+    photoTitle.value = '该人脸簇的图片'
+    videoTitle.value = '该人脸簇的视频'
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '读取人脸簇图片失败。'))
+    ElMessage.error(resolveErrorMessage(error, '读取人脸簇媒体失败'))
   } finally {
-    if (showBusy) photoLoading.value = false
+    if (showBusy) mediaLoading.value = false
   }
 }
 
 function selectCluster(cluster: FaceCluster) {
   selectedClusterLabel.value = cluster.label
-  void loadClusterPhotos(cluster.label)
+  void loadClusterMedia(cluster.label)
 }
 
 async function handleRenameCluster(cluster: FaceCluster) {
@@ -109,9 +140,10 @@ async function handleRenameCluster(cluster: FaceCluster) {
     const updated = await renameFaceCluster(cluster.label, renameDrafts[cluster.label] || '')
     clusters.value = clusters.value.map((item) => (item.label === cluster.label ? updated : item))
     renameDrafts[cluster.label] = updated.display_name || ''
-    ElMessage.success(updated.display_name ? '人脸簇名称已保存。' : '人脸簇名称已清空。')
+    emitWorkspaceRefresh()
+    ElMessage.success(updated.display_name ? '人脸簇名称已保存' : '人脸簇名称已清空')
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '保存人脸簇名称失败。'))
+    ElMessage.error(resolveErrorMessage(error, '保存人脸簇名称失败'))
   } finally {
     renamingLabels.value = renamingLabels.value.filter((item) => item !== cluster.label)
   }
@@ -120,6 +152,11 @@ async function handleRenameCluster(cluster: FaceCluster) {
 function openDetails(photo: Photo) {
   selectedPhoto.value = photo
   detailOpen.value = true
+}
+
+function openVideoDetails(video: Video) {
+  selectedVideo.value = video
+  videoDetailOpen.value = true
 }
 
 function replacePhoto(updatedPhoto: Photo) {
@@ -137,10 +174,31 @@ function replacePhoto(updatedPhoto: Photo) {
   }
 }
 
+function replaceVideo(updatedVideo: Video) {
+  clusterVideoHits.value = clusterVideoHits.value.map((hit) =>
+    hit.video.id === updatedVideo.id
+      ? {
+          ...hit,
+          video: updatedVideo,
+        }
+      : hit,
+  )
+
+  if (selectedVideo.value?.id === updatedVideo.id) {
+    selectedVideo.value = updatedVideo
+  }
+}
+
 async function refreshSelectedPhoto() {
   if (!selectedPhoto.value) return
   const latest = await getPhoto(selectedPhoto.value.id)
   replacePhoto(latest)
+}
+
+async function refreshSelectedVideo() {
+  if (!selectedVideo.value) return
+  const latest = await getVideo(selectedVideo.value.id)
+  replaceVideo(latest)
 }
 
 async function handleReanalyze() {
@@ -151,27 +209,117 @@ async function handleReanalyze() {
     const updatedPhoto = await reanalyzePhoto(selectedPhoto.value.id)
     replacePhoto(updatedPhoto)
     await loadClusters(false)
-    ElMessage.success('图片已重新分析。')
+    emitWorkspaceRefresh()
+    ElMessage.success('图片已重新分析')
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '重新分析失败。'))
+    ElMessage.error(resolveErrorMessage(error, '重新分析失败'))
   } finally {
     reanalyzing.value = false
   }
 }
 
-async function handleFindSimilar() {
+async function handleFindSimilarPhoto() {
   if (!selectedPhoto.value) return
 
   findingSimilar.value = true
   try {
     const response = await findSimilarPhotos(selectedPhoto.value.id, 24)
     clusterHits.value = response.hits
-    resultTitle.value = '相似图片'
-    ElMessage.success('已切换到相似图片结果。')
+    photoTitle.value = '相似图片'
+    ElMessage.success('已切换到相似图片结果')
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '查找相似图片失败。'))
+    ElMessage.error(resolveErrorMessage(error, '查找相似图片失败'))
   } finally {
     findingSimilar.value = false
+  }
+}
+
+async function handleFindSimilarVideo() {
+  if (!selectedVideo.value) return
+
+  findingSimilarVideo.value = true
+  try {
+    const response = await findSimilarVideos(selectedVideo.value.id, 24)
+    clusterVideoHits.value = response.hits
+    videoTitle.value = '相似视频'
+    await refreshSelectedVideo()
+    ElMessage.success('已切换到相似视频结果')
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, '查找相似视频失败'))
+  } finally {
+    findingSimilarVideo.value = false
+  }
+}
+
+async function handleDeletePhoto() {
+  if (!selectedPhoto.value) return
+
+  try {
+    await ElMessageBox.confirm(
+      '删除后会移除图片归档文件，并更新该人脸簇下的相关结果。是否继续？',
+      '删除图片',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return
+    ElMessage.error(resolveErrorMessage(error, '删除图片前确认失败'))
+    return
+  }
+
+  deletingPhoto.value = true
+  try {
+    const targetId = selectedPhoto.value.id
+    await deletePhoto(targetId)
+    clusterHits.value = clusterHits.value.filter((hit) => hit.photo.id !== targetId)
+    selectedPhoto.value = null
+    detailOpen.value = false
+    await loadClusters(false)
+    emitWorkspaceRefresh()
+    ElMessage.success('图片已删除')
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, '删除图片失败'))
+  } finally {
+    deletingPhoto.value = false
+  }
+}
+
+async function handleDeleteVideo() {
+  if (!selectedVideo.value) return
+
+  try {
+    await ElMessageBox.confirm(
+      '删除后会移除视频归档文件、缩略图和抽帧缓存，并更新该人脸簇下的结果。是否继续？',
+      '删除视频',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return
+    ElMessage.error(resolveErrorMessage(error, '删除视频前确认失败'))
+    return
+  }
+
+  deletingVideo.value = true
+  try {
+    const targetId = selectedVideo.value.id
+    await deleteVideo(targetId)
+    clusterVideoHits.value = clusterVideoHits.value.filter((hit) => hit.video.id !== targetId)
+    selectedVideo.value = null
+    videoDetailOpen.value = false
+    await loadClusters(false)
+    emitWorkspaceRefresh()
+    ElMessage.success('视频已删除')
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, '删除视频失败'))
+  } finally {
+    deletingVideo.value = false
   }
 }
 
@@ -183,9 +331,10 @@ async function handleRenameFaceCluster(label: string, displayName: string) {
     clusters.value = clusters.value.map((item) => (item.label === label ? updated : item))
     renameDrafts[label] = updated.display_name || ''
     await refreshSelectedPhoto()
-    ElMessage.success(displayName.trim() ? '人脸簇名称已保存。' : '人脸簇名称已清空。')
+    emitWorkspaceRefresh()
+    ElMessage.success(displayName.trim() ? '人脸簇名称已保存' : '人脸簇名称已清空')
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '保存人脸簇名称失败。'))
+    ElMessage.error(resolveErrorMessage(error, '保存人脸簇名称失败'))
   } finally {
     renamingLabels.value = renamingLabels.value.filter((item) => item !== label)
   }
@@ -211,7 +360,7 @@ onBeforeUnmount(() => {
       <div class="section-head">
         <h4>人脸簇概览</h4>
         <span class="section-tip">
-          共 {{ formatCount(clusters.length) }} 个聚类，其中已命名 {{ formatCount(namedCount) }} 个
+          共 {{ formatCount(clusters.length) }} 个聚类，其中已命名 {{ formatCount(namedCount) }} 个。
         </span>
       </div>
 
@@ -312,8 +461,8 @@ onBeforeUnmount(() => {
 
           <section class="page-section inner-section">
             <div class="section-head">
-              <h4>{{ resultTitle }}</h4>
-              <span class="section-tip">选中某个人脸簇后，会展示该聚类关联的所有图片</span>
+              <h4>{{ photoTitle }}</h4>
+              <span class="section-tip">可直接删除不喜欢、模糊或误归类的图片。</span>
             </div>
 
             <div v-if="clusterHits.length" class="photo-grid">
@@ -321,7 +470,7 @@ onBeforeUnmount(() => {
                 v-for="hit in clusterHits"
                 :key="hit.photo.id"
                 :photo="hit.photo"
-                :score="resultTitle === '相似图片' ? hit.score : null"
+                :score="photoTitle === '相似图片' ? hit.score : null"
                 @select="openDetails(hit.photo)"
               />
             </div>
@@ -329,10 +478,38 @@ onBeforeUnmount(() => {
             <el-empty
               v-else
               :description="
-                photoLoading
+                mediaLoading
                   ? '正在读取该人脸簇的图片...'
                   : selectedCluster
-                    ? '该人脸簇下暂时没有图片'
+                    ? '该人脸簇下暂无图片'
+                    : '请先从左侧选择一个人脸簇'
+              "
+            />
+          </section>
+
+          <section class="page-section inner-section">
+            <div class="section-head">
+              <h4>{{ videoTitle }}</h4>
+              <span class="section-tip">同一人物在视频中的结果也会聚合展示，可直接删除误匹配视频。</span>
+            </div>
+
+            <div v-if="clusterVideoHits.length" class="photo-grid">
+              <VideoCard
+                v-for="hit in clusterVideoHits"
+                :key="hit.video.id"
+                :video="hit.video"
+                :score="videoTitle === '相似视频' ? hit.score : undefined"
+                @select="openVideoDetails(hit.video)"
+              />
+            </div>
+
+            <el-empty
+              v-else
+              :description="
+                mediaLoading
+                  ? '正在读取该人脸簇的视频...'
+                  : selectedCluster
+                    ? '该人脸簇下暂无视频'
                     : '请先从左侧选择一个人脸簇'
               "
             />
@@ -348,9 +525,20 @@ onBeforeUnmount(() => {
       :reanalyzing="reanalyzing"
       :renaming-labels="renamingLabels"
       :finding-similar="findingSimilar"
+      :deleting="deletingPhoto"
       @reanalyze="handleReanalyze"
-      @find-similar="handleFindSimilar"
+      @find-similar="handleFindSimilarPhoto"
+      @delete="handleDeletePhoto"
       @rename-face-cluster="handleRenameFaceCluster"
+    />
+
+    <VideoDetailDrawer
+      v-model="videoDetailOpen"
+      :video="selectedVideo"
+      :finding-similar="findingSimilarVideo"
+      :deleting="deletingVideo"
+      @find-similar="handleFindSimilarVideo"
+      @delete="handleDeleteVideo"
     />
   </div>
 </template>

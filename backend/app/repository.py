@@ -79,11 +79,19 @@ class GalleryRepository:
         self.session.refresh(photo)
         return photo
 
+    def delete_photo(self, photo: Photo) -> None:
+        self.session.delete(photo)
+        self.session.commit()
+
     def save_video(self, video: Video) -> Video:
         self.session.add(video)
         self.session.commit()
         self.session.refresh(video)
         return video
+
+    def delete_video(self, video: Video) -> None:
+        self.session.delete(video)
+        self.session.commit()
 
     def finish_import_job(
         self,

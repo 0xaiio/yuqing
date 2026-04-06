@@ -80,9 +80,17 @@ export async function getPhoto(photoId: number): Promise<Photo> {
   return response.data
 }
 
+export async function deletePhoto(photoId: number): Promise<void> {
+  await api.delete(`/photos/${photoId}`)
+}
+
 export async function getVideo(videoId: number): Promise<Video> {
   const response = await api.get<Video>(`/videos/${videoId}`)
   return response.data
+}
+
+export async function deleteVideo(videoId: number): Promise<void> {
+  await api.delete(`/videos/${videoId}`)
 }
 
 export async function reanalyzePhoto(photoId: number): Promise<Photo> {
@@ -196,6 +204,16 @@ export async function listPhotosByPerson(personId: number, limit = 48): Promise<
   return response.data
 }
 
+export async function listVideosByPerson(
+  personId: number,
+  limit = 48,
+): Promise<VideoSearchResponse> {
+  const response = await api.get<VideoSearchResponse>(`/people/${personId}/videos`, {
+    params: { limit },
+  })
+  return response.data
+}
+
 export async function listPersonCorrectionCandidates(
   personId: number,
   limit = 80,
@@ -229,6 +247,16 @@ export async function listPhotosByFaceCluster(
   limit = 48,
 ): Promise<SearchResponse> {
   const response = await api.get<SearchResponse>(`/face-clusters/${clusterLabel}/photos`, {
+    params: { limit },
+  })
+  return response.data
+}
+
+export async function listVideosByFaceCluster(
+  clusterLabel: string,
+  limit = 48,
+): Promise<VideoSearchResponse> {
+  const response = await api.get<VideoSearchResponse>(`/face-clusters/${clusterLabel}/videos`, {
     params: { limit },
   })
   return response.data

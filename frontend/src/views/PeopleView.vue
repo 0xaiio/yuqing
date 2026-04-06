@@ -5,28 +5,44 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import PhotoCard from '../components/PhotoCard.vue'
 import PhotoDetailDrawer from '../components/PhotoDetailDrawer.vue'
+import VideoCard from '../components/VideoCard.vue'
+import VideoDetailDrawer from '../components/VideoDetailDrawer.vue'
 import {
   addPersonSample,
   createPerson,
   deletePerson,
   deletePersonSample,
+  deletePhoto,
+  deleteVideo,
   findSimilarPhotos,
+  findSimilarVideos,
   getPersonSampleAssetUrl,
   getPhoto,
+  getVideo,
   listFaceClusters,
   listPeople,
   listPersonSamples,
   listPhotosByPerson,
+  listVideosByPerson,
   reanalyzePhoto,
   renameFaceCluster,
   renamePerson,
 } from '../services/api'
-import type { FaceCluster, PersonProfile, PersonSample, Photo, SearchHit } from '../types'
+import type {
+  FaceCluster,
+  PersonProfile,
+  PersonSample,
+  Photo,
+  SearchHit,
+  Video,
+  VideoSearchHit,
+} from '../types'
 import { formatCount, formatDateTime, resolveErrorMessage } from '../utils/format'
 
 const people = ref<PersonProfile[]>([])
 const samples = ref<PersonSample[]>([])
 const personHits = ref<SearchHit[]>([])
+const personVideoHits = ref<VideoSearchHit[]>([])
 const selectedPersonId = ref<number | null>(null)
 const peopleLoading = ref(false)
 const detailLoading = ref(false)
@@ -36,6 +52,8 @@ const deletingPerson = ref(false)
 const uploadingSample = ref(false)
 const deletingSampleIds = ref<number[]>([])
 const createName = ref('')
+const photoSectionTitle = ref('该人物相关图片')
+const videoSectionTitle = ref('该人物相关视频')
 const renameDrafts = reactive<Record<number, string>>({})
 const sampleInputRef = ref<HTMLInputElement | null>(null)
 
@@ -43,8 +61,14 @@ const detailOpen = ref(false)
 const selectedPhoto = ref<Photo | null>(null)
 const reanalyzing = ref(false)
 const findingSimilar = ref(false)
+const deletingPhoto = ref(false)
 const faceClusters = ref<FaceCluster[]>([])
 const renamingLabels = ref<string[]>([])
+
+const videoDetailOpen = ref(false)
+const selectedVideo = ref<Video | null>(null)
+const findingSimilarVideo = ref(false)
+const deletingVideo = ref(false)
 
 const selectedPerson = computed(
   () => people.value.find((person) => person.id === selectedPersonId.value) || null,
@@ -83,6 +107,7 @@ async function loadPeople(showBusy = true) {
     } else {
       samples.value = []
       personHits.value = []
+      personVideoHits.value = []
     }
   } catch (error) {
     ElMessage.error(resolveErrorMessage(error, '读取人物库失败'))
@@ -103,12 +128,16 @@ async function loadPersonDetail(personId: number, showBusy = true) {
   if (showBusy) detailLoading.value = true
 
   try {
-    const [sampleList, photoResponse] = await Promise.all([
+    const [sampleList, photoResponse, videoResponse] = await Promise.all([
       listPersonSamples(personId),
       listPhotosByPerson(personId, 48),
+      listVideosByPerson(personId, 24),
     ])
     samples.value = sampleList
     personHits.value = photoResponse.hits
+    personVideoHits.value = videoResponse.hits
+    photoSectionTitle.value = '该人物相关图片'
+    videoSectionTitle.value = '该人物相关视频'
   } catch (error) {
     ElMessage.error(resolveErrorMessage(error, '读取人物详情失败'))
   } finally {
@@ -217,7 +246,7 @@ async function handleSampleFileChange(event: Event) {
     renameDrafts[updated.id] = updated.name
     await Promise.all([loadPersonDetail(updated.id, false), loadFaceClusterList()])
     emitWorkspaceRefresh()
-    ElMessage.success('人物参考图已上传，系统会自动刷新识别结果')
+    ElMessage.success('人物参考图已上传，识别结果会自动刷新')
   } catch (error) {
     ElMessage.error(resolveErrorMessage(error, '上传人物参考图失败'))
   } finally {
@@ -265,6 +294,11 @@ function openDetails(photo: Photo) {
   detailOpen.value = true
 }
 
+function openVideoDetails(video: Video) {
+  selectedVideo.value = video
+  videoDetailOpen.value = true
+}
+
 function replacePhoto(updatedPhoto: Photo) {
   personHits.value = personHits.value.map((hit) =>
     hit.photo.id === updatedPhoto.id
@@ -280,10 +314,31 @@ function replacePhoto(updatedPhoto: Photo) {
   }
 }
 
+function replaceVideo(updatedVideo: Video) {
+  personVideoHits.value = personVideoHits.value.map((hit) =>
+    hit.video.id === updatedVideo.id
+      ? {
+          ...hit,
+          video: updatedVideo,
+        }
+      : hit,
+  )
+
+  if (selectedVideo.value?.id === updatedVideo.id) {
+    selectedVideo.value = updatedVideo
+  }
+}
+
 async function refreshSelectedPhoto() {
   if (!selectedPhoto.value) return
   const latest = await getPhoto(selectedPhoto.value.id)
   replacePhoto(latest)
+}
+
+async function refreshSelectedVideo() {
+  if (!selectedVideo.value) return
+  const latest = await getVideo(selectedVideo.value.id)
+  replaceVideo(latest)
 }
 
 async function handleReanalyze() {
@@ -303,18 +358,108 @@ async function handleReanalyze() {
   }
 }
 
-async function handleFindSimilar() {
+async function handleFindSimilarPhoto() {
   if (!selectedPhoto.value) return
 
   findingSimilar.value = true
   try {
     const response = await findSimilarPhotos(selectedPhoto.value.id, 24)
     personHits.value = response.hits
+    photoSectionTitle.value = '相似图片'
     ElMessage.success('已切换到相似图片结果')
   } catch (error) {
     ElMessage.error(resolveErrorMessage(error, '查找相似图片失败'))
   } finally {
     findingSimilar.value = false
+  }
+}
+
+async function handleFindSimilarVideo() {
+  if (!selectedVideo.value) return
+
+  findingSimilarVideo.value = true
+  try {
+    const response = await findSimilarVideos(selectedVideo.value.id, 24)
+    personVideoHits.value = response.hits
+    videoSectionTitle.value = '相似视频'
+    await refreshSelectedVideo()
+    ElMessage.success('已切换到相似视频结果')
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, '查找相似视频失败'))
+  } finally {
+    findingSimilarVideo.value = false
+  }
+}
+
+async function handleDeletePhoto() {
+  if (!selectedPhoto.value) return
+
+  try {
+    await ElMessageBox.confirm(
+      '删除后会移除图片归档文件，并同步更新该人物下的识别结果。是否继续？',
+      '删除图片',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return
+    ElMessage.error(resolveErrorMessage(error, '删除图片前确认失败'))
+    return
+  }
+
+  deletingPhoto.value = true
+  try {
+    const targetId = selectedPhoto.value.id
+    await deletePhoto(targetId)
+    personHits.value = personHits.value.filter((hit) => hit.photo.id !== targetId)
+    selectedPhoto.value = null
+    detailOpen.value = false
+    await Promise.all([loadPeople(false), loadFaceClusterList()])
+    emitWorkspaceRefresh()
+    ElMessage.success('图片已删除')
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, '删除图片失败'))
+  } finally {
+    deletingPhoto.value = false
+  }
+}
+
+async function handleDeleteVideo() {
+  if (!selectedVideo.value) return
+
+  try {
+    await ElMessageBox.confirm(
+      '删除后会移除视频归档文件、缩略图和抽帧缓存，并同步更新该人物下的结果。是否继续？',
+      '删除视频',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return
+    ElMessage.error(resolveErrorMessage(error, '删除视频前确认失败'))
+    return
+  }
+
+  deletingVideo.value = true
+  try {
+    const targetId = selectedVideo.value.id
+    await deleteVideo(targetId)
+    personVideoHits.value = personVideoHits.value.filter((hit) => hit.video.id !== targetId)
+    selectedVideo.value = null
+    videoDetailOpen.value = false
+    await Promise.all([loadPeople(false), loadFaceClusterList()])
+    emitWorkspaceRefresh()
+    ElMessage.success('视频已删除')
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, '删除视频失败'))
+  } finally {
+    deletingVideo.value = false
   }
 }
 
@@ -353,7 +498,7 @@ onBeforeUnmount(() => {
       <div class="section-head">
         <h4>人物库</h4>
         <span class="section-tip">
-          上传带名字的人像参考图后，系统会自动绑定相似人脸簇，并允许你按人物名或人物图检索。
+          上传带名字的人像参考图后，系统会自动绑定相似人脸簇；现在也支持在人物页删除误识别的图片和视频。
         </span>
       </div>
 
@@ -454,7 +599,7 @@ onBeforeUnmount(() => {
             <div class="section-head compact-head">
               <h4>参考图样本</h4>
               <span class="section-tip">
-                建议上传 3-5 张不同角度、清晰正脸的人像参考图，删除部分参考图后系统会自动重算人物识别。
+                建议上传 3-5 张不同角度、清晰的参考图；删除部分样本后系统会自动重算人物识别。
               </span>
             </div>
 
@@ -485,10 +630,8 @@ onBeforeUnmount(() => {
 
           <section class="page-section inner-section">
             <div class="section-head">
-              <h4>该人物相关图片</h4>
-              <span class="section-tip">
-                结果来自人物参考图与人脸簇绑定，人物名也能直接用于搜索页的自然语言描述。
-              </span>
+              <h4>{{ photoSectionTitle }}</h4>
+              <span class="section-tip">可直接删除误识别、模糊或不喜欢的图片。</span>
             </div>
 
             <div v-if="personHits.length" class="photo-grid">
@@ -496,7 +639,7 @@ onBeforeUnmount(() => {
                 v-for="hit in personHits"
                 :key="hit.photo.id"
                 :photo="hit.photo"
-                :score="hit.score"
+                :score="photoSectionTitle === '相似图片' ? hit.score : null"
                 @select="openDetails(hit.photo)"
               />
             </div>
@@ -512,6 +655,34 @@ onBeforeUnmount(() => {
               "
             />
           </section>
+
+          <section class="page-section inner-section">
+            <div class="section-head">
+              <h4>{{ videoSectionTitle }}</h4>
+              <span class="section-tip">同一人物在视频中的结果也会聚合展示，可直接删除误匹配视频。</span>
+            </div>
+
+            <div v-if="personVideoHits.length" class="photo-grid">
+              <VideoCard
+                v-for="hit in personVideoHits"
+                :key="hit.video.id"
+                :video="hit.video"
+                :score="videoSectionTitle === '相似视频' ? hit.score : undefined"
+                @select="openVideoDetails(hit.video)"
+              />
+            </div>
+
+            <el-empty
+              v-else
+              :description="
+                detailLoading
+                  ? '正在读取人物视频...'
+                  : selectedPerson
+                    ? '当前还没有识别到与该人物关联的视频'
+                    : '请先从左侧选择一个人物档案'
+              "
+            />
+          </section>
         </div>
       </div>
     </section>
@@ -523,9 +694,20 @@ onBeforeUnmount(() => {
       :reanalyzing="reanalyzing"
       :renaming-labels="renamingLabels"
       :finding-similar="findingSimilar"
+      :deleting="deletingPhoto"
       @reanalyze="handleReanalyze"
-      @find-similar="handleFindSimilar"
+      @find-similar="handleFindSimilarPhoto"
+      @delete="handleDeletePhoto"
       @rename-face-cluster="handleRenameFaceCluster"
+    />
+
+    <VideoDetailDrawer
+      v-model="videoDetailOpen"
+      :video="selectedVideo"
+      :finding-similar="findingSimilarVideo"
+      :deleting="deletingVideo"
+      @find-similar="handleFindSimilarVideo"
+      @delete="handleDeleteVideo"
     />
   </div>
 </template>

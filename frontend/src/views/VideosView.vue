@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { Film, Search, UploadFilled, UserFilled } from '@element-plus/icons-vue'
-import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 import VideoCard from '../components/VideoCard.vue'
 import VideoDetailDrawer from '../components/VideoDetailDrawer.vue'
 import {
+  deleteVideo,
   findSimilarVideos,
   getVideo,
   listPeople,
@@ -30,6 +31,7 @@ const peopleProfiles = ref<PersonProfile[]>([])
 const detailOpen = ref(false)
 const selectedVideo = ref<Video | null>(null)
 const findingSimilar = ref(false)
+const deletingVideo = ref(false)
 
 const videoSearching = ref(false)
 const personImageSearching = ref(false)
@@ -80,6 +82,14 @@ const quickQueries = [
   '包含课堂或白板的视频',
   '有孩子和乐高的视频片段',
 ]
+
+function emitWorkspaceRefresh() {
+  window.dispatchEvent(new Event('workspace:refresh'))
+}
+
+function isMessageBoxCancel(error: unknown): boolean {
+  return error === 'cancel' || error === 'close'
+}
 
 function buildPeopleFilters(): string[] {
   return Array.from(new Set([...parseTagInput(form.peopleText), ...form.selectedPeople]))
@@ -241,8 +251,54 @@ async function handleFindSimilar() {
   }
 }
 
+async function handleDeleteVideo() {
+  if (!selectedVideo.value) return
+
+  try {
+    await ElMessageBox.confirm(
+      '删除后会移除视频归档文件、缩略图和抽帧缓存。是否继续？',
+      '删除视频',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return
+    ElMessage.error(resolveErrorMessage(error, '删除视频前确认失败'))
+    return
+  }
+
+  deletingVideo.value = true
+  try {
+    const targetId = selectedVideo.value.id
+    await deleteVideo(targetId)
+    hits.value = hits.value.filter((hit) => hit.video.id !== targetId)
+    selectedVideo.value = null
+    detailOpen.value = false
+    emitWorkspaceRefresh()
+    ElMessage.success('视频已删除')
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, '删除视频失败'))
+  } finally {
+    deletingVideo.value = false
+  }
+}
+
+function handleWorkspaceRefresh() {
+  if (mode.value === 'recent') {
+    void loadRecentVideos(false)
+  }
+}
+
 onMounted(() => {
   void Promise.all([loadRecentVideos(), loadPeopleList()])
+  window.addEventListener('workspace:refresh', handleWorkspaceRefresh)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('workspace:refresh', handleWorkspaceRefresh)
 })
 </script>
 
@@ -252,7 +308,7 @@ onMounted(() => {
       <div class="section-head">
         <h4>视频检索</h4>
         <span class="section-tip">
-          支持文本搜视频、按视频样例搜视频、按人物头像搜视频，并聚合展示视频中的人物、场景和物体标签。
+          支持文本搜视频、按视频样例搜视频、按人物头像搜视频，也可以在详情里直接删除不需要的视频。
         </span>
       </div>
 
@@ -376,7 +432,9 @@ onMounted(() => {
       v-model="detailOpen"
       :video="selectedVideo"
       :finding-similar="findingSimilar"
+      :deleting="deletingVideo"
       @find-similar="handleFindSimilar"
+      @delete="handleDeleteVideo"
     />
   </div>
 </template>
