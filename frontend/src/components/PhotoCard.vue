@@ -10,14 +10,19 @@ const props = withDefaults(
   defineProps<{
     photo: Photo
     score?: number | null
+    selectionMode?: boolean
+    selected?: boolean
   }>(),
   {
     score: null,
+    selectionMode: false,
+    selected: false,
   },
 )
 
 const emit = defineEmits<{
   select: []
+  toggleSelection: []
 }>()
 
 const failed = ref(false)
@@ -35,6 +40,10 @@ const summary = computed(
 )
 
 function handleSelect() {
+  if (props.selectionMode) {
+    emit('toggleSelection')
+    return
+  }
   emit('select')
 }
 </script>
@@ -42,6 +51,7 @@ function handleSelect() {
 <template>
   <article
     class="photo-card fade-in"
+    :class="{ selected: selected, 'selection-mode': selectionMode }"
     role="button"
     tabindex="0"
     @click="handleSelect"
@@ -49,6 +59,15 @@ function handleSelect() {
     @keydown.space.prevent="handleSelect"
   >
     <div class="photo-card__media">
+      <button
+        v-if="selectionMode"
+        type="button"
+        class="selection-chip"
+        :class="{ selected: selected }"
+        @click.stop="emit('toggleSelection')"
+      >
+        {{ selected ? '✓' : '' }}
+      </button>
       <img
         v-if="!failed"
         :src="assetUrl"
@@ -119,6 +138,17 @@ function handleSelect() {
   outline: none;
 }
 
+.photo-card.selection-mode {
+  cursor: pointer;
+}
+
+.photo-card.selected {
+  border-color: rgba(255, 178, 92, 0.64);
+  box-shadow:
+    0 0 0 1px rgba(255, 178, 92, 0.34),
+    0 24px 52px rgba(4, 8, 15, 0.32);
+}
+
 .photo-card__media {
   position: relative;
   aspect-ratio: 4 / 3;
@@ -159,6 +189,29 @@ function handleSelect() {
   color: #fff3d1;
   font-size: 12px;
   letter-spacing: 0.04em;
+}
+
+.selection-chip {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  background: rgba(8, 12, 18, 0.72);
+  color: transparent;
+  font-size: 18px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  z-index: 2;
+}
+
+.selection-chip.selected {
+  background: rgba(255, 180, 96, 0.95);
+  border-color: rgba(255, 180, 96, 0.95);
+  color: #2d1908;
 }
 
 .photo-card__body {

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { UserFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
+import MediaBatchToolbar from '../components/MediaBatchToolbar.vue'
 import PhotoCard from '../components/PhotoCard.vue'
 import PhotoDetailDrawer from '../components/PhotoDetailDrawer.vue'
 import VideoCard from '../components/VideoCard.vue'
@@ -42,11 +43,17 @@ const selectedPhoto = ref<Photo | null>(null)
 const reanalyzing = ref(false)
 const findingSimilar = ref(false)
 const deletingPhoto = ref(false)
+const batchDeletingPhotos = ref(false)
+const photoSelectionMode = ref(false)
+const selectedPhotoIds = ref<number[]>([])
 
 const videoDetailOpen = ref(false)
 const selectedVideo = ref<Video | null>(null)
 const findingSimilarVideo = ref(false)
 const deletingVideo = ref(false)
+const batchDeletingVideos = ref(false)
+const videoSelectionMode = ref(false)
+const selectedVideoIds = ref<number[]>([])
 
 const selectedCluster = computed(
   () => clusters.value.find((cluster) => cluster.label === selectedClusterLabel.value) || null,
@@ -64,6 +71,8 @@ const filteredClusters = computed(() => {
   })
 })
 const namedCount = computed(() => clusters.value.filter((cluster) => cluster.named).length)
+const currentPhotoIds = computed(() => clusterHits.value.map((hit) => hit.photo.id))
+const currentVideoIds = computed(() => clusterVideoHits.value.map((hit) => hit.video.id))
 
 function emitWorkspaceRefresh() {
   window.dispatchEvent(new Event('workspace:refresh'))
@@ -75,6 +84,56 @@ function isMessageBoxCancel(error: unknown): boolean {
 
 function examplePhotoUrl(cluster: FaceCluster): string {
   return cluster.example_photo_id ? getPhotoAssetUrl(cluster.example_photo_id) : ''
+}
+
+function clearPhotoSelection() {
+  selectedPhotoIds.value = []
+}
+
+function startPhotoSelectionMode() {
+  photoSelectionMode.value = true
+}
+
+function exitPhotoSelectionMode() {
+  photoSelectionMode.value = false
+  clearPhotoSelection()
+}
+
+function togglePhotoSelection(photoId: number) {
+  if (selectedPhotoIds.value.includes(photoId)) {
+    selectedPhotoIds.value = selectedPhotoIds.value.filter((id) => id !== photoId)
+    return
+  }
+  selectedPhotoIds.value = [...selectedPhotoIds.value, photoId]
+}
+
+function selectAllCurrentPhotos() {
+  selectedPhotoIds.value = [...currentPhotoIds.value]
+}
+
+function clearVideoSelection() {
+  selectedVideoIds.value = []
+}
+
+function startVideoSelectionMode() {
+  videoSelectionMode.value = true
+}
+
+function exitVideoSelectionMode() {
+  videoSelectionMode.value = false
+  clearVideoSelection()
+}
+
+function toggleVideoSelection(videoId: number) {
+  if (selectedVideoIds.value.includes(videoId)) {
+    selectedVideoIds.value = selectedVideoIds.value.filter((id) => id !== videoId)
+    return
+  }
+  selectedVideoIds.value = [...selectedVideoIds.value, videoId]
+}
+
+function selectAllCurrentVideos() {
+  selectedVideoIds.value = [...currentVideoIds.value]
 }
 
 async function loadClusters(showBusy = true) {
@@ -226,6 +285,7 @@ async function handleFindSimilarPhoto() {
     const response = await findSimilarPhotos(selectedPhoto.value.id, 24)
     clusterHits.value = response.hits
     photoTitle.value = '相似图片'
+    exitPhotoSelectionMode()
     ElMessage.success('已切换到相似图片结果')
   } catch (error) {
     ElMessage.error(resolveErrorMessage(error, '查找相似图片失败'))
@@ -243,12 +303,55 @@ async function handleFindSimilarVideo() {
     clusterVideoHits.value = response.hits
     videoTitle.value = '相似视频'
     await refreshSelectedVideo()
+    exitVideoSelectionMode()
     ElMessage.success('已切换到相似视频结果')
   } catch (error) {
     ElMessage.error(resolveErrorMessage(error, '查找相似视频失败'))
   } finally {
     findingSimilarVideo.value = false
   }
+}
+
+async function removePhotosByIds(photoIds: number[], successMessage: string) {
+  const uniqueIds = Array.from(new Set(photoIds))
+  const idSet = new Set(uniqueIds)
+
+  for (const photoId of uniqueIds) {
+    await deletePhoto(photoId)
+  }
+
+  clusterHits.value = clusterHits.value.filter((hit) => !idSet.has(hit.photo.id))
+  selectedPhotoIds.value = selectedPhotoIds.value.filter((id) => !idSet.has(id))
+
+  if (selectedPhoto.value && idSet.has(selectedPhoto.value.id)) {
+    selectedPhoto.value = null
+    detailOpen.value = false
+  }
+
+  await loadClusters(false)
+  emitWorkspaceRefresh()
+  ElMessage.success(successMessage)
+}
+
+async function removeVideosByIds(videoIds: number[], successMessage: string) {
+  const uniqueIds = Array.from(new Set(videoIds))
+  const idSet = new Set(uniqueIds)
+
+  for (const videoId of uniqueIds) {
+    await deleteVideo(videoId)
+  }
+
+  clusterVideoHits.value = clusterVideoHits.value.filter((hit) => !idSet.has(hit.video.id))
+  selectedVideoIds.value = selectedVideoIds.value.filter((id) => !idSet.has(id))
+
+  if (selectedVideo.value && idSet.has(selectedVideo.value.id)) {
+    selectedVideo.value = null
+    videoDetailOpen.value = false
+  }
+
+  await loadClusters(false)
+  emitWorkspaceRefresh()
+  ElMessage.success(successMessage)
 }
 
 async function handleDeletePhoto() {
@@ -272,14 +375,7 @@ async function handleDeletePhoto() {
 
   deletingPhoto.value = true
   try {
-    const targetId = selectedPhoto.value.id
-    await deletePhoto(targetId)
-    clusterHits.value = clusterHits.value.filter((hit) => hit.photo.id !== targetId)
-    selectedPhoto.value = null
-    detailOpen.value = false
-    await loadClusters(false)
-    emitWorkspaceRefresh()
-    ElMessage.success('图片已删除')
+    await removePhotosByIds([selectedPhoto.value.id], '图片已删除')
   } catch (error) {
     ElMessage.error(resolveErrorMessage(error, '删除图片失败'))
   } finally {
@@ -308,18 +404,73 @@ async function handleDeleteVideo() {
 
   deletingVideo.value = true
   try {
-    const targetId = selectedVideo.value.id
-    await deleteVideo(targetId)
-    clusterVideoHits.value = clusterVideoHits.value.filter((hit) => hit.video.id !== targetId)
-    selectedVideo.value = null
-    videoDetailOpen.value = false
-    await loadClusters(false)
-    emitWorkspaceRefresh()
-    ElMessage.success('视频已删除')
+    await removeVideosByIds([selectedVideo.value.id], '视频已删除')
   } catch (error) {
     ElMessage.error(resolveErrorMessage(error, '删除视频失败'))
   } finally {
     deletingVideo.value = false
+  }
+}
+
+async function handleBatchDeletePhotos() {
+  if (!selectedPhotoIds.value.length) return
+
+  try {
+    await ElMessageBox.confirm(
+      `将删除 ${selectedPhotoIds.value.length} 张图片，并更新该人脸簇下的相关结果。是否继续？`,
+      '批量删除图片',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return
+    ElMessage.error(resolveErrorMessage(error, '批量删除图片前确认失败'))
+    return
+  }
+
+  batchDeletingPhotos.value = true
+  try {
+    const deleteCount = selectedPhotoIds.value.length
+    await removePhotosByIds([...selectedPhotoIds.value], `已批量删除 ${deleteCount} 张图片`)
+    exitPhotoSelectionMode()
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, '批量删除图片失败'))
+  } finally {
+    batchDeletingPhotos.value = false
+  }
+}
+
+async function handleBatchDeleteVideos() {
+  if (!selectedVideoIds.value.length) return
+
+  try {
+    await ElMessageBox.confirm(
+      `将删除 ${selectedVideoIds.value.length} 个视频，并更新该人脸簇下的结果。是否继续？`,
+      '批量删除视频',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return
+    ElMessage.error(resolveErrorMessage(error, '批量删除视频前确认失败'))
+    return
+  }
+
+  batchDeletingVideos.value = true
+  try {
+    const deleteCount = selectedVideoIds.value.length
+    await removeVideosByIds([...selectedVideoIds.value], `已批量删除 ${deleteCount} 个视频`)
+    exitVideoSelectionMode()
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, '批量删除视频失败'))
+  } finally {
+    batchDeletingVideos.value = false
   }
 }
 
@@ -343,6 +494,22 @@ async function handleRenameFaceCluster(label: string, displayName: string) {
 function handleWorkspaceRefresh() {
   void loadClusters(false)
 }
+
+watch(currentPhotoIds, () => {
+  if (!currentPhotoIds.value.length) {
+    exitPhotoSelectionMode()
+    return
+  }
+  selectedPhotoIds.value = selectedPhotoIds.value.filter((id) => currentPhotoIds.value.includes(id))
+})
+
+watch(currentVideoIds, () => {
+  if (!currentVideoIds.value.length) {
+    exitVideoSelectionMode()
+    return
+  }
+  selectedVideoIds.value = selectedVideoIds.value.filter((id) => currentVideoIds.value.includes(id))
+})
 
 onMounted(() => {
   void loadClusters()
@@ -462,8 +629,22 @@ onBeforeUnmount(() => {
           <section class="page-section inner-section">
             <div class="section-head">
               <h4>{{ photoTitle }}</h4>
-              <span class="section-tip">可直接删除不喜欢、模糊或误归类的图片。</span>
+              <span class="section-tip">可查看详情，或开启多选后批量删除不需要的图片。</span>
             </div>
+
+            <MediaBatchToolbar
+              v-if="clusterHits.length"
+              :active="photoSelectionMode"
+              :selected-count="selectedPhotoIds.length"
+              :total-count="clusterHits.length"
+              media-label="图片"
+              :deleting="batchDeletingPhotos"
+              @start="startPhotoSelectionMode"
+              @cancel="exitPhotoSelectionMode"
+              @select-all="selectAllCurrentPhotos"
+              @clear="clearPhotoSelection"
+              @remove="handleBatchDeletePhotos"
+            />
 
             <div v-if="clusterHits.length" class="photo-grid">
               <PhotoCard
@@ -471,7 +652,10 @@ onBeforeUnmount(() => {
                 :key="hit.photo.id"
                 :photo="hit.photo"
                 :score="photoTitle === '相似图片' ? hit.score : null"
+                :selection-mode="photoSelectionMode"
+                :selected="selectedPhotoIds.includes(hit.photo.id)"
                 @select="openDetails(hit.photo)"
+                @toggle-selection="togglePhotoSelection(hit.photo.id)"
               />
             </div>
 
@@ -490,8 +674,22 @@ onBeforeUnmount(() => {
           <section class="page-section inner-section">
             <div class="section-head">
               <h4>{{ videoTitle }}</h4>
-              <span class="section-tip">同一人物在视频中的结果也会聚合展示，可直接删除误匹配视频。</span>
+              <span class="section-tip">同一人物在视频中的结果也会聚合展示，可多选批量清理误匹配视频。</span>
             </div>
+
+            <MediaBatchToolbar
+              v-if="clusterVideoHits.length"
+              :active="videoSelectionMode"
+              :selected-count="selectedVideoIds.length"
+              :total-count="clusterVideoHits.length"
+              media-label="视频"
+              :deleting="batchDeletingVideos"
+              @start="startVideoSelectionMode"
+              @cancel="exitVideoSelectionMode"
+              @select-all="selectAllCurrentVideos"
+              @clear="clearVideoSelection"
+              @remove="handleBatchDeleteVideos"
+            />
 
             <div v-if="clusterVideoHits.length" class="photo-grid">
               <VideoCard
@@ -499,7 +697,10 @@ onBeforeUnmount(() => {
                 :key="hit.video.id"
                 :video="hit.video"
                 :score="videoTitle === '相似视频' ? hit.score : undefined"
+                :selection-mode="videoSelectionMode"
+                :selected="selectedVideoIds.includes(hit.video.id)"
                 @select="openVideoDetails(hit.video)"
+                @toggle-selection="toggleVideoSelection(hit.video.id)"
               />
             </div>
 

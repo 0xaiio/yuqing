@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { Film, Search, UploadFilled, UserFilled } from '@element-plus/icons-vue'
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
+import MediaBatchToolbar from '../components/MediaBatchToolbar.vue'
 import VideoCard from '../components/VideoCard.vue'
 import VideoDetailDrawer from '../components/VideoDetailDrawer.vue'
 import {
@@ -32,6 +33,9 @@ const detailOpen = ref(false)
 const selectedVideo = ref<Video | null>(null)
 const findingSimilar = ref(false)
 const deletingVideo = ref(false)
+const batchDeletingVideos = ref(false)
+const videoSelectionMode = ref(false)
+const selectedVideoIds = ref<number[]>([])
 
 const videoSearching = ref(false)
 const personImageSearching = ref(false)
@@ -76,6 +80,8 @@ const queryHint = computed(() => {
   return ''
 })
 
+const currentVideoIds = computed(() => hits.value.map((hit) => hit.video.id))
+
 const quickQueries = [
   '和小明一起出游的视频',
   '有海边和日落场景的视频',
@@ -93,6 +99,31 @@ function isMessageBoxCancel(error: unknown): boolean {
 
 function buildPeopleFilters(): string[] {
   return Array.from(new Set([...parseTagInput(form.peopleText), ...form.selectedPeople]))
+}
+
+function clearVideoSelection() {
+  selectedVideoIds.value = []
+}
+
+function startVideoSelectionMode() {
+  videoSelectionMode.value = true
+}
+
+function exitVideoSelectionMode() {
+  videoSelectionMode.value = false
+  clearVideoSelection()
+}
+
+function toggleVideoSelection(videoId: number) {
+  if (selectedVideoIds.value.includes(videoId)) {
+    selectedVideoIds.value = selectedVideoIds.value.filter((id) => id !== videoId)
+    return
+  }
+  selectedVideoIds.value = [...selectedVideoIds.value, videoId]
+}
+
+function selectAllCurrentVideos() {
+  selectedVideoIds.value = [...currentVideoIds.value]
 }
 
 async function loadPeopleList() {
@@ -151,6 +182,7 @@ function resetFilters() {
   form.mode = 'hybrid'
   videoQueryName.value = ''
   personQueryImageName.value = ''
+  exitVideoSelectionMode()
   void loadRecentVideos()
 }
 
@@ -179,6 +211,7 @@ async function handleVideoFileChange(event: Event) {
     const response = await searchByVideo(file, form.limit)
     hits.value = response.hits
     mode.value = 'video'
+    exitVideoSelectionMode()
     ElMessage.success('已切换到按视频样例检索结果')
   } catch (error) {
     ElMessage.error(resolveErrorMessage(error, '按视频检索失败'))
@@ -200,6 +233,7 @@ async function handlePersonImageFileChange(event: Event) {
     const response = await searchVideosByPersonImage(file, form.limit)
     hits.value = response.hits
     mode.value = 'personImage'
+    exitVideoSelectionMode()
     ElMessage.success('已切换到按人物头像检索视频结果')
   } catch (error) {
     ElMessage.error(resolveErrorMessage(error, '按人物头像搜视频失败'))
@@ -243,12 +277,33 @@ async function handleFindSimilar() {
     hits.value = response.hits
     mode.value = 'similar'
     await refreshSelectedVideo()
+    exitVideoSelectionMode()
     ElMessage.success('已切换到相似视频结果')
   } catch (error) {
     ElMessage.error(resolveErrorMessage(error, '查找相似视频失败'))
   } finally {
     findingSimilar.value = false
   }
+}
+
+async function removeVideosByIds(videoIds: number[], successMessage: string) {
+  const uniqueIds = Array.from(new Set(videoIds))
+  const idSet = new Set(uniqueIds)
+
+  for (const videoId of uniqueIds) {
+    await deleteVideo(videoId)
+  }
+
+  hits.value = hits.value.filter((hit) => !idSet.has(hit.video.id))
+  selectedVideoIds.value = selectedVideoIds.value.filter((id) => !idSet.has(id))
+
+  if (selectedVideo.value && idSet.has(selectedVideo.value.id)) {
+    selectedVideo.value = null
+    detailOpen.value = false
+  }
+
+  emitWorkspaceRefresh()
+  ElMessage.success(successMessage)
 }
 
 async function handleDeleteVideo() {
@@ -272,17 +327,42 @@ async function handleDeleteVideo() {
 
   deletingVideo.value = true
   try {
-    const targetId = selectedVideo.value.id
-    await deleteVideo(targetId)
-    hits.value = hits.value.filter((hit) => hit.video.id !== targetId)
-    selectedVideo.value = null
-    detailOpen.value = false
-    emitWorkspaceRefresh()
-    ElMessage.success('视频已删除')
+    await removeVideosByIds([selectedVideo.value.id], '视频已删除')
   } catch (error) {
     ElMessage.error(resolveErrorMessage(error, '删除视频失败'))
   } finally {
     deletingVideo.value = false
+  }
+}
+
+async function handleBatchDeleteVideos() {
+  if (!selectedVideoIds.value.length) return
+
+  try {
+    await ElMessageBox.confirm(
+      `将删除 ${selectedVideoIds.value.length} 个视频，并清理缩略图与抽帧缓存。是否继续？`,
+      '批量删除视频',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return
+    ElMessage.error(resolveErrorMessage(error, '批量删除视频前确认失败'))
+    return
+  }
+
+  batchDeletingVideos.value = true
+  try {
+    const deleteCount = selectedVideoIds.value.length
+    await removeVideosByIds([...selectedVideoIds.value], `已批量删除 ${deleteCount} 个视频`)
+    exitVideoSelectionMode()
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, '批量删除视频失败'))
+  } finally {
+    batchDeletingVideos.value = false
   }
 }
 
@@ -291,6 +371,14 @@ function handleWorkspaceRefresh() {
     void loadRecentVideos(false)
   }
 }
+
+watch(currentVideoIds, () => {
+  if (!currentVideoIds.value.length) {
+    exitVideoSelectionMode()
+    return
+  }
+  selectedVideoIds.value = selectedVideoIds.value.filter((id) => currentVideoIds.value.includes(id))
+})
 
 onMounted(() => {
   void Promise.all([loadRecentVideos(), loadPeopleList()])
@@ -308,7 +396,7 @@ onBeforeUnmount(() => {
       <div class="section-head">
         <h4>视频检索</h4>
         <span class="section-tip">
-          支持文本搜视频、按视频样例搜视频、按人物头像搜视频，也可以在详情里直接删除不需要的视频。
+          支持文本搜视频、按视频样例搜视频、按人物头像搜视频，也支持对当前结果进行多选批量删除。
         </span>
       </div>
 
@@ -403,8 +491,22 @@ onBeforeUnmount(() => {
     <section class="page-section fade-in">
       <div class="section-head">
         <h4>{{ resultTitle }}</h4>
-        <span class="section-tip">{{ hits.length }} 个结果</span>
+        <span class="section-tip">点击视频查看详情，或开启多选后批量删除。</span>
       </div>
+
+      <MediaBatchToolbar
+        v-if="hits.length"
+        :active="videoSelectionMode"
+        :selected-count="selectedVideoIds.length"
+        :total-count="hits.length"
+        media-label="视频"
+        :deleting="batchDeletingVideos"
+        @start="startVideoSelectionMode"
+        @cancel="exitVideoSelectionMode"
+        @select-all="selectAllCurrentVideos"
+        @clear="clearVideoSelection"
+        @remove="handleBatchDeleteVideos"
+      />
 
       <div v-if="hits.length" class="photo-grid">
         <VideoCard
@@ -412,7 +514,10 @@ onBeforeUnmount(() => {
           :key="hit.video.id"
           :video="hit.video"
           :score="mode === 'recent' ? undefined : hit.score"
+          :selection-mode="videoSelectionMode"
+          :selected="selectedVideoIds.includes(hit.video.id)"
           @select="openDetails(hit.video)"
+          @toggle-selection="toggleVideoSelection(hit.video.id)"
         />
       </div>
 

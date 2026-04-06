@@ -9,10 +9,13 @@ import { formatDateTime, formatDuration, sourceKindLabel } from '../utils/format
 const props = defineProps<{
   video: Video
   score?: number
+  selectionMode?: boolean
+  selected?: boolean
 }>()
 
 const emit = defineEmits<{
   select: [video: Video]
+  toggleSelection: []
 }>()
 
 const thumbnailUrl = computed(() =>
@@ -26,13 +29,26 @@ const chipTexts = computed(() => [
 ])
 
 function openDetail() {
+  if (props.selectionMode) {
+    emit('toggleSelection')
+    return
+  }
   emit('select', props.video)
 }
 </script>
 
 <template>
-  <article class="video-card fade-in" @click="openDetail">
+  <article class="video-card fade-in" :class="{ selected: selected, 'selection-mode': selectionMode }" @click="openDetail">
     <div class="video-card__media">
+      <button
+        v-if="selectionMode"
+        type="button"
+        class="selection-chip"
+        :class="{ selected: selected }"
+        @click.stop="emit('toggleSelection')"
+      >
+        {{ selected ? '✓' : '' }}
+      </button>
       <img
         v-if="video.thumbnail_asset_url"
         :src="thumbnailUrl"
@@ -90,6 +106,13 @@ function openDetail() {
 .video-card:hover {
   transform: translateY(-2px);
   border-color: rgba(255, 176, 112, 0.26);
+}
+
+.video-card.selected {
+  border-color: rgba(255, 178, 92, 0.64);
+  box-shadow:
+    0 0 0 1px rgba(255, 178, 92, 0.34),
+    0 24px 52px rgba(4, 8, 15, 0.32);
 }
 
 .video-card__media {
@@ -163,6 +186,29 @@ function openDetail() {
 
 .score-badge {
   background: rgba(255, 173, 96, 0.78);
+  color: #2d1908;
+}
+
+.selection-chip {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  background: rgba(8, 12, 18, 0.72);
+  color: transparent;
+  font-size: 18px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  z-index: 2;
+}
+
+.selection-chip.selected {
+  background: rgba(255, 180, 96, 0.95);
+  border-color: rgba(255, 180, 96, 0.95);
   color: #2d1908;
 }
 </style>

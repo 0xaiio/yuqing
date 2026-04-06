@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { Picture, Search, UploadFilled, UserFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
+import MediaBatchToolbar from '../components/MediaBatchToolbar.vue'
 import PhotoCard from '../components/PhotoCard.vue'
 import PhotoDetailDrawer from '../components/PhotoDetailDrawer.vue'
 import {
@@ -41,6 +42,9 @@ const selectedPhoto = ref<Photo | null>(null)
 const reanalyzing = ref(false)
 const findingSimilar = ref(false)
 const deletingPhoto = ref(false)
+const batchDeletingPhotos = ref(false)
+const photoSelectionMode = ref(false)
+const selectedPhotoIds = ref<number[]>([])
 const faceClusters = ref<FaceCluster[]>([])
 const renamingLabels = ref<string[]>([])
 const peopleProfiles = ref<PersonProfile[]>([])
@@ -54,14 +58,6 @@ const personImageSearching = ref(false)
 const personQueryImagePreview = ref<string | null>(null)
 const personQueryImageName = ref('')
 const personFileInputRef = ref<HTMLInputElement | null>(null)
-
-function emitWorkspaceRefresh() {
-  window.dispatchEvent(new Event('workspace:refresh'))
-}
-
-function isMessageBoxCancel(error: unknown): boolean {
-  return error === 'cancel' || error === 'close'
-}
 
 const form = reactive<{
   text: string
@@ -93,14 +89,49 @@ const quickQueries = [
 
 const resultTitle = computed(() => {
   if (mode.value === 'similar') return '相似图片'
-  if (mode.value === 'image') return '参考图检索结果'
-  if (mode.value === 'personImage') return '人物图检索结果'
-  if (mode.value === 'search') return '搜索结果'
-  return '最近导入'
+  if (mode.value === 'image') return '按参考图搜索结果'
+  if (mode.value === 'personImage') return '按人物头像搜索结果'
+  if (mode.value === 'search') return '图片搜索结果'
+  return '最近导入的图片'
 })
+
+const currentPhotoIds = computed(() => hits.value.map((hit) => hit.photo.id))
+
+function emitWorkspaceRefresh() {
+  window.dispatchEvent(new Event('workspace:refresh'))
+}
+
+function isMessageBoxCancel(error: unknown): boolean {
+  return error === 'cancel' || error === 'close'
+}
 
 function buildPeopleFilters(): string[] {
   return Array.from(new Set([...parseTagInput(form.peopleText), ...form.selectedPeople]))
+}
+
+function clearPhotoSelection() {
+  selectedPhotoIds.value = []
+}
+
+function startPhotoSelectionMode() {
+  photoSelectionMode.value = true
+}
+
+function exitPhotoSelectionMode() {
+  photoSelectionMode.value = false
+  clearPhotoSelection()
+}
+
+function togglePhotoSelection(photoId: number) {
+  if (selectedPhotoIds.value.includes(photoId)) {
+    selectedPhotoIds.value = selectedPhotoIds.value.filter((id) => id !== photoId)
+    return
+  }
+  selectedPhotoIds.value = [...selectedPhotoIds.value, photoId]
+}
+
+function selectAllCurrentPhotos() {
+  selectedPhotoIds.value = [...currentPhotoIds.value]
 }
 
 async function loadRecent(showBusy = true) {
@@ -114,7 +145,7 @@ async function loadRecent(showBusy = true) {
     }))
     mode.value = 'recent'
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '加载最近图片失败。'))
+    ElMessage.error(resolveErrorMessage(error, '加载最近图片失败'))
   } finally {
     if (showBusy) loading.value = false
   }
@@ -124,7 +155,7 @@ async function loadFaceClusterList() {
   try {
     faceClusters.value = await listFaceClusters(80)
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '读取人脸簇列表失败。'))
+    ElMessage.error(resolveErrorMessage(error, '读取人脸簇列表失败'))
   }
 }
 
@@ -132,7 +163,7 @@ async function loadPeopleList() {
   try {
     peopleProfiles.value = await listPeople(120)
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '读取人物库失败。'))
+    ElMessage.error(resolveErrorMessage(error, '读取人物库失败'))
   }
 }
 
@@ -153,7 +184,7 @@ async function runSearch(showBusy = true) {
     hits.value = response.hits
     mode.value = 'search'
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '执行搜索失败。'))
+    ElMessage.error(resolveErrorMessage(error, '执行图片搜索失败'))
   } finally {
     if (showBusy) loading.value = false
   }
@@ -185,6 +216,7 @@ function resetFilters() {
   form.mode = 'hybrid'
   clearQueryImage()
   clearPersonQueryImage()
+  exitPhotoSelectionMode()
   void loadRecent()
 }
 
@@ -222,9 +254,9 @@ async function handleReanalyze() {
     const updatedPhoto = await reanalyzePhoto(selectedPhoto.value.id)
     replacePhoto(updatedPhoto)
     await Promise.all([loadFaceClusterList(), loadPeopleList()])
-    ElMessage.success('图片已重新分析。')
+    ElMessage.success('图片已重新分析')
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '重新分析失败。'))
+    ElMessage.error(resolveErrorMessage(error, '重新分析失败'))
   } finally {
     reanalyzing.value = false
   }
@@ -238,12 +270,34 @@ async function handleFindSimilar() {
     const response = await findSimilarPhotos(selectedPhoto.value.id, form.limit)
     hits.value = response.hits
     mode.value = 'similar'
-    ElMessage.success('已切换到相似图片结果。')
+    exitPhotoSelectionMode()
+    ElMessage.success('已切换到相似图片结果')
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '查找相似图片失败。'))
+    ElMessage.error(resolveErrorMessage(error, '查找相似图片失败'))
   } finally {
     findingSimilar.value = false
   }
+}
+
+async function removePhotosByIds(photoIds: number[], successMessage: string) {
+  const uniqueIds = Array.from(new Set(photoIds))
+  const idSet = new Set(uniqueIds)
+
+  for (const photoId of uniqueIds) {
+    await deletePhoto(photoId)
+  }
+
+  hits.value = hits.value.filter((hit) => !idSet.has(hit.photo.id))
+  selectedPhotoIds.value = selectedPhotoIds.value.filter((id) => !idSet.has(id))
+
+  if (selectedPhoto.value && idSet.has(selectedPhoto.value.id)) {
+    selectedPhoto.value = null
+    detailOpen.value = false
+  }
+
+  await Promise.all([loadFaceClusterList(), loadPeopleList()])
+  emitWorkspaceRefresh()
+  ElMessage.success(successMessage)
 }
 
 async function handleDeletePhoto() {
@@ -267,18 +321,42 @@ async function handleDeletePhoto() {
 
   deletingPhoto.value = true
   try {
-    const targetId = selectedPhoto.value.id
-    await deletePhoto(targetId)
-    hits.value = hits.value.filter((hit) => hit.photo.id !== targetId)
-    selectedPhoto.value = null
-    detailOpen.value = false
-    await Promise.all([loadFaceClusterList(), loadPeopleList()])
-    emitWorkspaceRefresh()
-    ElMessage.success('图片已删除')
+    await removePhotosByIds([selectedPhoto.value.id], '图片已删除')
   } catch (error) {
     ElMessage.error(resolveErrorMessage(error, '删除图片失败'))
   } finally {
     deletingPhoto.value = false
+  }
+}
+
+async function handleBatchDeletePhotos() {
+  if (!selectedPhotoIds.value.length) return
+
+  try {
+    await ElMessageBox.confirm(
+      `将删除 ${selectedPhotoIds.value.length} 张图片，并同步更新人物与人脸簇结果。是否继续？`,
+      '批量删除图片',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+      },
+    )
+  } catch (error) {
+    if (isMessageBoxCancel(error)) return
+    ElMessage.error(resolveErrorMessage(error, '批量删除图片前确认失败'))
+    return
+  }
+
+  batchDeletingPhotos.value = true
+  try {
+    const deleteCount = selectedPhotoIds.value.length
+    await removePhotosByIds([...selectedPhotoIds.value], `已批量删除 ${deleteCount} 张图片`)
+    exitPhotoSelectionMode()
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, '批量删除图片失败'))
+  } finally {
+    batchDeletingPhotos.value = false
   }
 }
 
@@ -288,9 +366,9 @@ async function handleRenameFaceCluster(label: string, displayName: string) {
   try {
     await renameFaceCluster(label, displayName.trim())
     await Promise.all([loadFaceClusterList(), refreshSelectedPhoto(), loadPeopleList()])
-    ElMessage.success(displayName.trim() ? '人脸簇名称已保存。' : '人脸簇名称已清空。')
+    ElMessage.success(displayName.trim() ? '人脸簇名称已保存' : '人脸簇名称已清空')
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '保存人脸簇名称失败。'))
+    ElMessage.error(resolveErrorMessage(error, '保存人脸簇名称失败'))
   } finally {
     renamingLabels.value = renamingLabels.value.filter((item) => item !== label)
   }
@@ -320,9 +398,10 @@ async function handleImageFileChange(event: Event) {
     const response = await searchByImage(file, form.limit)
     hits.value = response.hits
     mode.value = 'image'
-    ElMessage.success('参考图检索已完成。')
+    exitPhotoSelectionMode()
+    ElMessage.success('按参考图搜索完成')
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '以图搜图失败。'))
+    ElMessage.error(resolveErrorMessage(error, '以图搜图失败'))
   } finally {
     imageSearching.value = false
     target.value = ''
@@ -345,9 +424,10 @@ async function handlePersonImageFileChange(event: Event) {
     const response = await searchByPersonImage(file, form.limit)
     hits.value = response.hits
     mode.value = 'personImage'
-    ElMessage.success('人物图检索已完成。')
+    exitPhotoSelectionMode()
+    ElMessage.success('按人物头像搜索完成')
   } catch (error) {
-    ElMessage.error(resolveErrorMessage(error, '按人物图检索失败。'))
+    ElMessage.error(resolveErrorMessage(error, '按人物图搜索失败'))
   } finally {
     personImageSearching.value = false
     target.value = ''
@@ -386,6 +466,14 @@ function handleWorkspaceRefresh() {
   void loadRecent(false)
 }
 
+watch(currentPhotoIds, () => {
+  if (!currentPhotoIds.value.length) {
+    exitPhotoSelectionMode()
+    return
+  }
+  selectedPhotoIds.value = selectedPhotoIds.value.filter((id) => currentPhotoIds.value.includes(id))
+})
+
 onMounted(() => {
   void Promise.all([loadRecent(), loadFaceClusterList(), loadPeopleList()])
   window.addEventListener('workspace:refresh', handleWorkspaceRefresh)
@@ -403,10 +491,9 @@ onBeforeUnmount(() => {
     <section class="page-section search-board fade-in">
       <div class="page-heading">
         <p class="eyebrow">Natural Retrieval</p>
-        <h3>用一句话、一张图，或者一张人物参考图搜索跨来源图片</h3>
+        <h3>用一句话、一张图，或一张人物头像图搜索跨来源图片</h3>
         <p>
-          输入自然语言时可以直接写人物名，例如“和小明在海边拍的日落”。
-          如果你已经在“人物库”里上传过参考图，系统会把这些人名一起带入识别与搜索。
+          支持自然语言、标签组合、以图搜图和人物头像搜索。现在也可以对当前结果开启多选，批量删除不喜欢、低清晰度或误匹配的图片。
         </p>
       </div>
 
@@ -419,7 +506,7 @@ onBeforeUnmount(() => {
         />
         <div class="search-actions">
           <el-button type="primary" :icon="Search" :loading="loading" @click="runSearch()">
-            开始检索
+            开始搜索
           </el-button>
           <el-button @click="resetFilters">恢复最近导入</el-button>
         </div>
@@ -439,15 +526,12 @@ onBeforeUnmount(() => {
 
       <div class="filter-grid">
         <div class="soft-panel mini-panel">
-          <label>检索模式</label>
+          <label>搜索模式</label>
           <el-segmented v-model="form.mode" :options="searchModeOptions" />
         </div>
         <div class="soft-panel mini-panel">
-          <label>人物名</label>
-          <el-input
-            v-model="form.peopleText"
-            placeholder="多个名称用逗号分隔，例如：爸爸，小明"
-          />
+          <label>人物名称</label>
+          <el-input v-model="form.peopleText" placeholder="多个名称用逗号分隔，例如：爸爸，小明" />
         </div>
         <div class="soft-panel mini-panel">
           <label>已知人物</label>
@@ -524,8 +608,8 @@ onBeforeUnmount(() => {
 
         <div class="image-query-panel soft-panel">
           <div class="section-head compact-head">
-            <h4>按人物图检索</h4>
-            <span class="section-tip">只看人脸特征，适合用一张人物头像去找同一个人。</span>
+            <h4>按人物头像搜索</h4>
+            <span class="section-tip">只看人脸特征，适合用一张头像去找同一个人。</span>
           </div>
 
           <div class="image-query-row">
@@ -567,8 +651,22 @@ onBeforeUnmount(() => {
     <section class="page-section fade-in">
       <div class="section-head">
         <h4>{{ resultTitle }}</h4>
-        <span class="section-tip">点击图片可查看详情、重分析、命名人脸簇或查找相似图。</span>
+        <span class="section-tip">点击图片查看详情，或开启多选后批量删除。</span>
       </div>
+
+      <MediaBatchToolbar
+        v-if="hits.length"
+        :active="photoSelectionMode"
+        :selected-count="selectedPhotoIds.length"
+        :total-count="hits.length"
+        media-label="图片"
+        :deleting="batchDeletingPhotos"
+        @start="startPhotoSelectionMode"
+        @cancel="exitPhotoSelectionMode"
+        @select-all="selectAllCurrentPhotos"
+        @clear="clearPhotoSelection"
+        @remove="handleBatchDeletePhotos"
+      />
 
       <div v-if="hits.length" class="photo-grid">
         <PhotoCard
@@ -576,7 +674,10 @@ onBeforeUnmount(() => {
           :key="`${mode}-${hit.photo.id}`"
           :photo="hit.photo"
           :score="mode === 'recent' ? null : hit.score"
+          :selection-mode="photoSelectionMode"
+          :selected="selectedPhotoIds.includes(hit.photo.id)"
           @select="openDetails(hit.photo)"
+          @toggle-selection="togglePhotoSelection(hit.photo.id)"
         />
       </div>
 
