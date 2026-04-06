@@ -18,6 +18,7 @@
 - 删除能力：删除图片、删除视频，并自动清理视频缩略图 / 抽帧缓存 / 失效人脸簇引用
 - 通过界面删除图片 / 视频时，默认会同步删除本地同步源中的原文件；若原文件已不在已配置源目录中，则仅删除应用归档副本
 - 搜索页、视频页、人物页、人脸簇页支持批量多选删除图片 / 视频
+- 整理工作台：支持筛出并批量删除 thumb 缩略图、低分辨率图片、低分辨率视频、微信 / QQ 疑似无价值传输图
 - 人物页与人脸簇页同时展示相关图片和相关视频
 - 检索评估脚本：图片检索评估、视频检索评估
 
@@ -49,6 +50,7 @@
 - 按人名、人物头像、自然语言描述搜索图片
 - 相似图检索
 - 在搜索页、人物页、人脸簇页里批量多选删除不喜欢、模糊或误匹配的图片
+- 在整理工作台里筛出并清理 thumb、低分辨率和疑似无价值传输图片
 
 ### 3. 视频能力
 
@@ -59,6 +61,7 @@
 - 支持按人物头像搜视频
 - 支持相似视频检索
 - 在视频页、人物页、人脸簇页里批量多选删除误匹配或低价值视频
+- 在整理工作台里筛出并清理低分辨率视频
 
 ### 4. 人脸工程能力
 
@@ -166,6 +169,7 @@ npm run dev
 ### 通用
 
 - `GET /api/v1/health`
+- `GET /api/v1/cleanup/candidates`
 - `GET /api/v1/sources`
 - `POST /api/v1/sources`
 - `POST /api/v1/sources/{source_id}/import`
@@ -280,6 +284,11 @@ VIDEO_EMBEDDING_DEVICE=cpu
   - `DELETE /api/v1/photos/{photo_id}`
   - `DELETE /api/v1/videos/{video_id}`
   - 删除后会同步清理文件、缩略图目录和失效的人脸簇引用
+- 临时构造 thumb 图、低分辨率图和低分辨率视频后验证：
+  - `GET /api/v1/cleanup/candidates?category=thumbnail_images`
+  - `GET /api/v1/cleanup/candidates?category=low_resolution_images`
+  - `GET /api/v1/cleanup/candidates?category=junk_transfer_images`
+  - `GET /api/v1/cleanup/candidates?category=low_resolution_videos`
 
 ## 许可证与使用边界
 

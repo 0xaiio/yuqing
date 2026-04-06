@@ -1,5 +1,10 @@
 export type SourceKind = 'local_folder' | 'wechat_folder' | 'qq_folder'
 export type SearchMode = 'hybrid' | 'keyword' | 'vector'
+export type CleanupCategory =
+  | 'thumbnail_images'
+  | 'low_resolution_images'
+  | 'junk_transfer_images'
+  | 'low_resolution_videos'
 
 export interface HealthStatus {
   status: string
@@ -124,6 +129,29 @@ export interface VideoSearchHit {
 export interface VideoSearchResponse {
   total: number
   hits: VideoSearchHit[]
+}
+
+export interface CleanupPhotoHit {
+  score: number
+  reason: string
+  width: number | null
+  height: number | null
+  photo: Photo
+}
+
+export interface CleanupVideoHit {
+  score: number
+  reason: string
+  width: number | null
+  height: number | null
+  video: Video
+}
+
+export interface CleanupResponse {
+  category: CleanupCategory
+  total: number
+  photo_hits: CleanupPhotoHit[]
+  video_hits: CleanupVideoHit[]
 }
 
 export interface FaceCluster {

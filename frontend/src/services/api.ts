@@ -1,6 +1,8 @@
 import axios from 'axios'
 
 import type {
+  CleanupCategory,
+  CleanupResponse,
   CreateSourcePayload,
   FaceCluster,
   FaceThresholds,
@@ -72,6 +74,16 @@ export async function listPhotos(limit = 60): Promise<Photo[]> {
 
 export async function listVideos(limit = 60): Promise<Video[]> {
   const response = await api.get<Video[]>('/videos', { params: { limit } })
+  return response.data
+}
+
+export async function listCleanupCandidates(
+  category: CleanupCategory,
+  limit = 80,
+): Promise<CleanupResponse> {
+  const response = await api.get<CleanupResponse>('/cleanup/candidates', {
+    params: { category, limit },
+  })
   return response.data
 }
 

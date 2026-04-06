@@ -4,6 +4,7 @@ import AppShell from '../layouts/AppShell.vue'
 import FaceClustersView from '../views/FaceClustersView.vue'
 import FaceTuningView from '../views/FaceTuningView.vue'
 import JobsView from '../views/JobsView.vue'
+import OrganizeView from '../views/OrganizeView.vue'
 import PeopleCorrectionsView from '../views/PeopleCorrectionsView.vue'
 import PeopleView from '../views/PeopleView.vue'
 import SearchView from '../views/SearchView.vue'
@@ -35,6 +36,14 @@ const router = createRouter({
           meta: {
             title: '视频检索与浏览',
             description: '支持文本搜视频、按视频样例搜视频，并查看视频中的人物和场景聚合结果。',
+          },
+        },
+        {
+          path: '/organize',
+          component: OrganizeView,
+          meta: {
+            title: '整理与清理',
+            description: '批量筛出 thumb 缩略图、低分辨率图片 / 视频，以及微信 QQ 疑似无价值传输图，集中清理。',
           },
         },
         {

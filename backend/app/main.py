@@ -16,10 +16,12 @@ from app.embeddings import VectorEmbeddingService, serialize_vector
 from app.face_clustering import FaceClusteringService
 from app.face_tuning import FaceRuntimeConfigService, FaceTuningService
 from app.import_pipeline import ImportPipeline
+from app.media_cleanup import MediaCleanupService
 from app.media_library import MediaLibraryService
 from app.people import PersonLibraryService
 from app.repository import GalleryRepository
 from app.schemas import (
+    CleanupResponse,
     FaceClusterRead,
     FaceClusterRenameRequest,
     FaceThresholdUpdateRequest,
@@ -241,6 +243,18 @@ def list_videos(
     repository = GalleryRepository(session)
     videos = repository.list_recent_videos(limit=limit)
     return [build_video_read(repository, video) for video in videos]
+
+
+@app.get(f"{settings.api_prefix}/cleanup/candidates", response_model=CleanupResponse)
+def list_cleanup_candidates(
+    category: str = Query(...),
+    limit: int = Query(default=80, ge=1, le=200),
+    session: Session = Depends(get_session),
+) -> CleanupResponse:
+    try:
+        return MediaCleanupService(session).list_candidates(category=category, limit=limit)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.get(f"{settings.api_prefix}/videos/{{video_id}}", response_model=VideoRead)

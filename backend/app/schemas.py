@@ -145,6 +145,29 @@ class VideoSearchResponse(BaseModel):
     hits: list[VideoSearchHit]
 
 
+class CleanupPhotoHitRead(BaseModel):
+    score: float
+    reason: str
+    width: int | None = None
+    height: int | None = None
+    photo: PhotoRead
+
+
+class CleanupVideoHitRead(BaseModel):
+    score: float
+    reason: str
+    width: int | None = None
+    height: int | None = None
+    video: VideoRead
+
+
+class CleanupResponse(BaseModel):
+    category: str
+    total: int
+    photo_hits: list[CleanupPhotoHitRead] = Field(default_factory=list)
+    video_hits: list[CleanupVideoHitRead] = Field(default_factory=list)
+
+
 class FaceClusterRead(BaseModel):
     id: int
     label: str
