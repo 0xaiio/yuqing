@@ -19,6 +19,7 @@
 - 通过界面删除图片 / 视频时，默认会同步删除本地同步源中的原文件；若原文件已不在已配置源目录中，则仅删除应用归档副本
 - 搜索页、视频页、人物页、人脸簇页支持批量多选删除图片 / 视频
 - 整理工作台：支持筛出并批量删除 thumb 缩略图、低分辨率图片、低分辨率视频、微信 / QQ 疑似无价值传输图
+- 整理工作台：支持查找重复或高度重复（文件命名 + 语义内容）的图片 / 视频，并优先推荐删除更低分辨率的重复项
 - 人物页与人脸簇页同时展示相关图片和相关视频
 - 检索评估脚本：图片检索评估、视频检索评估
 
@@ -51,6 +52,7 @@
 - 相似图检索
 - 在搜索页、人物页、人脸簇页里批量多选删除不喜欢、模糊或误匹配的图片
 - 在整理工作台里筛出并清理 thumb、低分辨率和疑似无价值传输图片
+- 在整理工作台里筛出重复或高度重复图片，并优先删除更低分辨率的副本
 
 ### 3. 视频能力
 
@@ -62,6 +64,7 @@
 - 支持相似视频检索
 - 在视频页、人物页、人脸簇页里批量多选删除误匹配或低价值视频
 - 在整理工作台里筛出并清理低分辨率视频
+- 在整理工作台里筛出重复或高度重复视频，并优先删除更低分辨率的副本
 
 ### 4. 人脸工程能力
 
@@ -289,6 +292,9 @@ VIDEO_EMBEDDING_DEVICE=cpu
   - `GET /api/v1/cleanup/candidates?category=low_resolution_images`
   - `GET /api/v1/cleanup/candidates?category=junk_transfer_images`
   - `GET /api/v1/cleanup/candidates?category=low_resolution_videos`
+- 临时构造同名 / 近义内容的高低分辨率图片与视频后验证：
+  - `GET /api/v1/cleanup/candidates?category=duplicate_images`
+  - `GET /api/v1/cleanup/candidates?category=duplicate_videos`
 
 ## 许可证与使用边界
 

@@ -4,6 +4,8 @@ export type CleanupCategory =
   | 'thumbnail_images'
   | 'low_resolution_images'
   | 'junk_transfer_images'
+  | 'duplicate_images'
+  | 'duplicate_videos'
   | 'low_resolution_videos'
 
 export interface HealthStatus {

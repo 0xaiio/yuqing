@@ -52,9 +52,19 @@ const categoryOptions: Array<{
     summary: '综合来源、文件名、分辨率、OCR 和人物信号，筛出疑似无保留价值的传输图。',
   },
   {
+    value: 'duplicate_images',
+    label: '重复 / 高度重复图片',
+    summary: '结合文件名、语义向量和感知哈希，找出建议删除的低质量重复图片。',
+  },
+  {
     value: 'low_resolution_videos',
     label: '低分辨率视频',
     summary: '找出清晰度明显偏低的视频，便于批量清理。',
+  },
+  {
+    value: 'duplicate_videos',
+    label: '重复 / 高度重复视频',
+    summary: '结合规范化文件名、视频向量和时长，找出建议删除的低质量重复视频。',
   },
 ]
 
@@ -277,7 +287,7 @@ onMounted(() => {
       <div class="cleanup-callout">
         <el-icon><Warning /></el-icon>
         <span>
-          当前候选基于来源目录、文件名 thumb 特征、分辨率、OCR、人物和场景信号综合打分。删除操作会默认同步清理同步源里的原文件。
+          当前候选会综合来源目录、规范化文件名、分辨率、OCR、语义向量、感知哈希与视频时长来推荐可清理项。删除操作会默认同步清理同步源里的原文件。
         </span>
       </div>
     </section>
