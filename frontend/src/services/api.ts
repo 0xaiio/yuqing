@@ -4,6 +4,7 @@ import type {
   CleanupCategory,
   CleanupResponse,
   CreateSourcePayload,
+  BackgroundTask,
   FaceCluster,
   FaceThresholds,
   FaceTuningBundle,
@@ -64,6 +65,16 @@ export async function stopSourceWatch(sourceId: number): Promise<Source> {
 
 export async function listImportJobs(limit = 50): Promise<ImportJob[]> {
   const response = await api.get<ImportJob[]>('/import-jobs', { params: { limit } })
+  return response.data
+}
+
+export async function listBackgroundTasks(limit = 80): Promise<BackgroundTask[]> {
+  const response = await api.get<BackgroundTask[]>('/background-tasks', { params: { limit } })
+  return response.data
+}
+
+export async function startVideoReanalysisAllTask(): Promise<BackgroundTask> {
+  const response = await api.post<BackgroundTask>('/background-tasks/video-reanalysis-all')
   return response.data
 }
 

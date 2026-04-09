@@ -10,6 +10,7 @@ from PIL import Image
 from sqlmodel import Session
 
 from app.ai import AIAnalyzer
+from app.background_tasks import BackgroundTaskManager
 from app.config import get_settings
 from app.database import create_db_and_tables, engine, get_session
 from app.embeddings import VectorEmbeddingService, serialize_vector
@@ -22,6 +23,7 @@ from app.people import PersonLibraryService
 from app.repository import GalleryRepository
 from app.schemas import (
     CleanupResponse,
+    BackgroundTaskRead,
     FaceClusterRead,
     FaceClusterRenameRequest,
     FaceThresholdUpdateRequest,
@@ -47,6 +49,7 @@ from app.schemas import (
 )
 from app.search_service import SearchService
 from app.video_processing import VideoProcessingService
+from app.video_reanalysis import build_reanalyzed_video_read
 from app.video_search_service import VideoSearchService
 from app.serializers import (
     build_face_cluster_read,
@@ -61,6 +64,7 @@ from app.watcher import SourceWatchManager
 
 settings = get_settings()
 watch_manager = SourceWatchManager(settings)
+background_task_manager = BackgroundTaskManager(settings)
 
 app = FastAPI(
     title=settings.app_name,
@@ -179,6 +183,26 @@ def list_import_jobs(
     repository = GalleryRepository(session)
     jobs = repository.list_import_jobs(limit=limit)
     return [ImportJobRead.model_validate(job, from_attributes=True) for job in jobs]
+
+
+@app.get(f"{settings.api_prefix}/background-tasks", response_model=list[BackgroundTaskRead])
+def list_background_tasks(
+    limit: int = Query(default=80, ge=1, le=200),
+) -> list[BackgroundTaskRead]:
+    return [
+        BackgroundTaskRead.model_validate(task, from_attributes=True)
+        for task in background_task_manager.list_tasks(limit=limit)
+    ]
+
+
+@app.post(
+    f"{settings.api_prefix}/background-tasks/video-reanalysis-all",
+    response_model=BackgroundTaskRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def start_video_reanalysis_all_task() -> BackgroundTaskRead:
+    task = background_task_manager.start_video_reanalysis_all()
+    return BackgroundTaskRead.model_validate(task, from_attributes=True)
 
 
 @app.get(f"{settings.api_prefix}/photos", response_model=list[PhotoRead])
@@ -325,29 +349,7 @@ def reanalyze_video(
     video_path = Path(video.storage_path)
     if not video_path.exists():
         raise HTTPException(status_code=404, detail="Video asset not found")
-
-    analysis = VideoProcessingService(session, settings).analyze_video(
-        video_path,
-        asset_key=video.sha256,
-        source_kind=video.source_kind or "local_folder",
-    )
-
-    video.thumbnail_path = str(analysis.thumbnail_path) if analysis.thumbnail_path else None
-    video.caption = analysis.caption
-    video.ocr_text = analysis.ocr_text
-    video.people = json.dumps(analysis.people, ensure_ascii=False)
-    video.scene_tags = json.dumps(analysis.scene_tags, ensure_ascii=False)
-    video.object_tags = json.dumps(analysis.object_tags, ensure_ascii=False)
-    video.face_clusters = json.dumps(analysis.face_clusters, ensure_ascii=False)
-    video.face_count = analysis.face_count
-    video.vector_embedding = serialize_vector(analysis.vector_embedding)
-    video.duration_seconds = analysis.metadata.duration_seconds
-    video.frame_width = analysis.metadata.frame_width
-    video.frame_height = analysis.metadata.frame_height
-    video.fps = analysis.metadata.fps
-    video.sampled_frame_count = analysis.sampled_frame_count
-    video = repository.save_video(video)
-    return build_video_read(repository, video)
+    return build_reanalyzed_video_read(session, video, settings=settings)
 
 
 @app.get(f"{settings.api_prefix}/videos/{{video_id}}/similar", response_model=VideoSearchResponse)

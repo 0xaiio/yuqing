@@ -1,6 +1,16 @@
 from sqlmodel import Session, desc, select
 
-from app.models import FaceCluster, ImportJob, PersonProfile, PersonSample, Photo, Source, Video, utc_now
+from app.models import (
+    BackgroundTask,
+    FaceCluster,
+    ImportJob,
+    PersonProfile,
+    PersonSample,
+    Photo,
+    Source,
+    Video,
+    utc_now,
+)
 
 
 class GalleryRepository:
@@ -65,6 +75,35 @@ class GalleryRepository:
     def list_import_jobs(self, limit: int = 50) -> list[ImportJob]:
         statement = select(ImportJob).order_by(desc(ImportJob.created_at)).limit(limit)
         return list(self.session.exec(statement))
+
+    def list_background_tasks(self, limit: int = 50) -> list[BackgroundTask]:
+        statement = select(BackgroundTask).order_by(desc(BackgroundTask.created_at)).limit(limit)
+        return list(self.session.exec(statement))
+
+    def get_background_task(self, task_id: int) -> BackgroundTask | None:
+        return self.session.get(BackgroundTask, task_id)
+
+    def find_running_background_task(self, task_type: str) -> BackgroundTask | None:
+        statement = (
+            select(BackgroundTask)
+            .where(BackgroundTask.task_type == task_type)
+            .where(BackgroundTask.status.in_(("queued", "running")))
+            .order_by(desc(BackgroundTask.created_at))
+        )
+        return self.session.exec(statement).first()
+
+    def create_background_task(self, task: BackgroundTask) -> BackgroundTask:
+        self.session.add(task)
+        self.session.commit()
+        self.session.refresh(task)
+        return task
+
+    def save_background_task(self, task: BackgroundTask) -> BackgroundTask:
+        task.updated_at = utc_now()
+        self.session.add(task)
+        self.session.commit()
+        self.session.refresh(task)
+        return task
 
     def create_import_job(self, source: Source) -> ImportJob:
         job = ImportJob(source_id=source.id, source_name=source.name, status="running")

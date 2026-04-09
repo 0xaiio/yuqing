@@ -52,6 +52,21 @@ export interface ImportJob {
   updated_at: string
 }
 
+export interface BackgroundTask {
+  id: number
+  task_type: string
+  title: string
+  status: string
+  total_items: number
+  completed_items: number
+  failed_items: number
+  error_message: string | null
+  created_at: string
+  updated_at: string
+  started_at: string | null
+  finished_at: string | null
+}
+
 export interface Photo {
   id: number
   source_id: number | null

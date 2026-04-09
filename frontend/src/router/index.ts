@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import AppShell from '../layouts/AppShell.vue'
+import BackgroundTasksView from '../views/BackgroundTasksView.vue'
 import FaceClustersView from '../views/FaceClustersView.vue'
 import FaceTuningView from '../views/FaceTuningView.vue'
 import JobsView from '../views/JobsView.vue'
@@ -21,6 +22,14 @@ const router = createRouter({
         {
           path: '',
           redirect: '/search',
+        },
+        {
+          path: '/background-tasks',
+          component: BackgroundTasksView,
+          meta: {
+            title: '后台任务与批量重分析',
+            description: '统一查看长耗时后台任务，并对全部视频发起批量重分析。',
+          },
         },
         {
           path: '/search',

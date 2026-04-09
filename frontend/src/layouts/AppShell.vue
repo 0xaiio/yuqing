@@ -5,6 +5,7 @@ import {
   Camera,
   FolderOpened,
   Film,
+  Loading,
   Operation,
   Refresh,
   Search,
@@ -33,6 +34,7 @@ const metrics = ref({
 const navItems = [
   { to: '/search', label: '图片搜索', caption: '自然语言、标签和以图搜图', icon: Search },
   { to: '/videos', label: '视频搜索', caption: '文本搜视频、相似视频与按人搜视频', icon: Film },
+  { to: '/background-tasks', label: '后台任务', caption: '批量重分析全部视频并查看长任务进度', icon: Loading },
   { to: '/organize', label: '整理清理', caption: '删 thumb、低清晰度和低价值传输图', icon: Brush },
   { to: '/people', label: '人物库', caption: '上传参考图并做特定人物识别', icon: Camera },
   { to: '/people-corrections', label: '标注校正', caption: '批量修正人物绑定和误识别', icon: Operation },

@@ -55,6 +55,7 @@ class Video(SQLModel, table=True):
     scene_tags: str | None = None
     object_tags: str | None = None
     face_clusters: str | None = None
+    person_moments: str | None = None
     face_count: int = 0
     vector_embedding: str | None = None
     duration_seconds: float | None = None
@@ -64,6 +65,22 @@ class Video(SQLModel, table=True):
     sampled_frame_count: int = 0
     taken_at: datetime | None = None
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class BackgroundTask(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    task_type: str = Field(index=True)
+    title: str
+    status: str = Field(default="queued", index=True)
+    total_items: int = 0
+    completed_items: int = 0
+    failed_items: int = 0
+    error_message: str | None = None
+    payload: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
 
 
 class ImportJob(SQLModel, table=True):

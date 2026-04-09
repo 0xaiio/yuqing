@@ -12,6 +12,7 @@
 - `SCRFD + AdaFace` 人脸检测 / 识别链路
 - 视频人物识别已升级为更强检测器 + 加密抽帧 + 零命中密集重试 + 视频级多帧人物投票聚合
 - 已导入旧视频可直接在界面触发“重新分析视频”，无需删除后重新导入
+- 已提供“后台任务”页面，可一键发起“批量重分析全部视频”并追踪长任务进度
 - 人物库、参考图上传、删除人物、删除人物部分参考图
 - 批量人物标注校正
 - 阈值可视化调参
@@ -206,6 +207,11 @@ npm run dev
 - `POST /api/v1/search/videos`
 - `POST /api/v1/search/videos/by-video`
 - `POST /api/v1/search/videos/by-person-image`
+
+### 后台任务
+
+- `GET /api/v1/background-tasks`
+- `POST /api/v1/background-tasks/video-reanalysis-all`
 
 ### 人物 / 人脸
 

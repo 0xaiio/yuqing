@@ -26,6 +26,9 @@ def _run_sqlite_migrations() -> None:
             "face_count": "INTEGER DEFAULT 0",
             "vector_embedding": "TEXT",
         },
+        "video": {
+            "person_moments": "TEXT",
+        },
         "facecluster": {
             "display_name": "TEXT",
             "centroid": "TEXT",

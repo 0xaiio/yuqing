@@ -60,6 +60,23 @@ class ImportJobRead(BaseModel):
     updated_at: datetime
 
 
+class BackgroundTaskRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_type: str
+    title: str
+    status: str
+    total_items: int = 0
+    completed_items: int = 0
+    failed_items: int = 0
+    error_message: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
 class PhotoRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

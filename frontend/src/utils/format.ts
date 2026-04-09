@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-import type { ImportJob, SearchMode, SourceKind } from '../types'
+import type { BackgroundTask, ImportJob, SearchMode, SourceKind } from '../types'
 
 export const sourceKindOptions: Array<{ label: string; value: SourceKind }> = [
   { label: '本地图库', value: 'local_folder' },
@@ -82,6 +82,29 @@ export function jobProgress(job: ImportJob): number {
     100,
     Math.round(((job.imported_count + job.duplicate_count) / job.scanned_count) * 100),
   )
+}
+
+export function taskStatusTagType(status: string): 'success' | 'danger' | 'info' | 'warning' {
+  if (status === 'completed') return 'success'
+  if (status === 'failed') return 'danger'
+  if (status === 'running') return 'warning'
+  if (status === 'queued') return 'info'
+  return 'info'
+}
+
+export function taskStatusLabel(status: string): string {
+  if (status === 'completed') return '已完成'
+  if (status === 'failed') return '失败'
+  if (status === 'running') return '执行中'
+  if (status === 'queued') return '排队中'
+  return status
+}
+
+export function backgroundTaskProgress(task: BackgroundTask): number {
+  if (task.total_items <= 0) {
+    return task.status === 'completed' ? 100 : 0
+  }
+  return Math.min(100, Math.round(((task.completed_items + task.failed_items) / task.total_items) * 100))
 }
 
 export function resolveErrorMessage(error: unknown, fallback: string): string {
