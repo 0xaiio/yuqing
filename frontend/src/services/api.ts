@@ -119,6 +119,11 @@ export async function deleteVideo(
   })
 }
 
+export async function reanalyzeVideo(videoId: number): Promise<Video> {
+  const response = await api.post<Video>(`/videos/${videoId}/reanalyze`)
+  return response.data
+}
+
 export async function reanalyzePhoto(photoId: number): Promise<Photo> {
   const response = await api.post<Photo>(`/photos/${photoId}/reanalyze`)
   return response.data

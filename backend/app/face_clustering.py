@@ -33,6 +33,13 @@ class FaceClusteringService:
 
     def analyze_photo(self, photo_path: Path, example_photo_id: int | None = None) -> FaceClusteringResult:
         embeddings = self.extract_face_embeddings(photo_path)
+        return self.analyze_embeddings(embeddings, example_photo_id=example_photo_id)
+
+    def analyze_embeddings(
+        self,
+        embeddings: list[list[float]],
+        example_photo_id: int | None = None,
+    ) -> FaceClusteringResult:
         if not embeddings:
             return FaceClusteringResult(labels=[], names=[], face_count=0)
 

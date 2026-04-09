@@ -1,20 +1,27 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Delete, Search } from '@element-plus/icons-vue'
+import { Delete, MagicStick, Search } from '@element-plus/icons-vue'
 
 import { getVideoAssetUrl, getVideoThumbnailUrl } from '../services/api'
 import type { Video } from '../types'
 import { formatDateTime, formatDuration, sourceKindLabel } from '../utils/format'
 
-const props = defineProps<{
-  modelValue: boolean
-  video: Video | null
-  findingSimilar: boolean
-  deleting: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    modelValue: boolean
+    video: Video | null
+    reanalyzing?: boolean
+    findingSimilar: boolean
+    deleting: boolean
+  }>(),
+  {
+    reanalyzing: false,
+  },
+)
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
+  reanalyze: []
   findSimilar: []
   delete: []
 }>()
@@ -87,6 +94,9 @@ const tagTexts = computed(() => {
       </div>
 
       <div class="video-drawer__actions">
+        <el-button type="primary" plain :icon="MagicStick" :loading="reanalyzing" @click="emit('reanalyze')">
+          重新分析视频
+        </el-button>
         <el-button type="primary" :icon="Search" :loading="findingSimilar" @click="emit('findSimilar')">
           查找相似视频
         </el-button>

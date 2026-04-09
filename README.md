@@ -10,6 +10,8 @@
 - 手动导入 + 实时目录监听
 - 图片与视频的统一入库、去重、标签化
 - `SCRFD + AdaFace` 人脸检测 / 识别链路
+- 视频人物识别已升级为更强检测器 + 加密抽帧 + 零命中密集重试 + 视频级多帧人物投票聚合
+- 已导入旧视频可直接在界面触发“重新分析视频”，无需删除后重新导入
 - 人物库、参考图上传、删除人物、删除人物部分参考图
 - 批量人物标注校正
 - 阈值可视化调参
@@ -33,6 +35,7 @@
 - 图片向量：本地轻量向量服务
 - 视频向量：`SigLIP2`
 - 视频摘要 / 场景理解：`Qwen2.5-VL`
+- 视频人物识别：`SCRFD buffalo_l(det_10g) + AdaFace`，并带视频级多帧聚合
 - 目录监听：`watchdog`
 
 ## 核心能力
@@ -198,6 +201,7 @@ npm run dev
 - `DELETE /api/v1/videos/{video_id}`
 - `GET /api/v1/videos/{video_id}/asset`
 - `GET /api/v1/videos/{video_id}/thumbnail`
+- `POST /api/v1/videos/{video_id}/reanalyze`
 - `GET /api/v1/videos/{video_id}/similar`
 - `POST /api/v1/search/videos`
 - `POST /api/v1/search/videos/by-video`
@@ -264,15 +268,22 @@ PERSON_LIBRARY_ROOT=D:/code-repos/yuqing/data/person-library
 FACE_MODEL_ROOT=D:/code-repos/yuqing/data/face-models
 FACE_RUNTIME_CONFIG_PATH=D:/code-repos/yuqing/data/face-runtime-config.json
 VIDEO_FRAME_ROOT=D:/code-repos/yuqing/data/video-frames
-FACE_DETECTION_PACK_NAME=buffalo_sc
-FACE_DETECTION_MODEL_FILENAME=det_500m.onnx
+FACE_DETECTION_PACK_NAME=buffalo_l
+FACE_DETECTION_MODEL_FILENAME=det_10g.onnx
+FACE_DETECTION_INPUT_SIZE=1024
+FACE_DETECTION_CONFIDENCE_THRESHOLD=0.35
 FACE_CLUSTER_SIMILARITY_THRESHOLD=0.5
 PERSON_RECOGNITION_SIMILARITY_THRESHOLD=0.52
-VIDEO_FRAME_SAMPLE_INTERVAL_SECONDS=3
-VIDEO_MAX_SAMPLED_FRAMES=8
+VIDEO_FRAME_SAMPLE_INTERVAL_SECONDS=1
+VIDEO_MAX_SAMPLED_FRAMES=24
+VIDEO_FACE_RETRY_INTERVAL_SECONDS=0.5
+VIDEO_FACE_RETRY_MAX_FRAMES=48
+VIDEO_PERSON_VOTE_MIN_HITS=2
 VIDEO_EMBEDDING_MODEL_ID=google/siglip2-base-patch16-224
 VIDEO_EMBEDDING_DEVICE=cpu
 ```
+
+如果你之前已经创建过 `backend/.env`，请检查是否仍覆盖着旧的 `FACE_DETECTION_*` 和 `VIDEO_*` 参数；旧值会优先于新默认值生效。
 
 ## 当前验证
 

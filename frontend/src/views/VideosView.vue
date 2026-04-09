@@ -12,6 +12,7 @@ import {
   getVideo,
   listPeople,
   listVideos,
+  reanalyzeVideo,
   searchByVideo,
   searchVideos,
   searchVideosByPersonImage,
@@ -31,6 +32,7 @@ const peopleProfiles = ref<PersonProfile[]>([])
 
 const detailOpen = ref(false)
 const selectedVideo = ref<Video | null>(null)
+const reanalyzingVideo = ref(false)
 const findingSimilar = ref(false)
 const deletingVideo = ref(false)
 const batchDeletingVideos = ref(false)
@@ -286,6 +288,22 @@ async function handleFindSimilar() {
   }
 }
 
+async function handleReanalyze() {
+  if (!selectedVideo.value) return
+
+  reanalyzingVideo.value = true
+  try {
+    const updatedVideo = await reanalyzeVideo(selectedVideo.value.id)
+    replaceVideo(updatedVideo)
+    emitWorkspaceRefresh()
+    ElMessage.success('已使用最新视频人物识别链路重新分析当前视频')
+  } catch (error) {
+    ElMessage.error(resolveErrorMessage(error, '重新分析视频失败'))
+  } finally {
+    reanalyzingVideo.value = false
+  }
+}
+
 async function removeVideosByIds(videoIds: number[], successMessage: string) {
   const uniqueIds = Array.from(new Set(videoIds))
   const idSet = new Set(uniqueIds)
@@ -536,8 +554,10 @@ onBeforeUnmount(() => {
     <VideoDetailDrawer
       v-model="detailOpen"
       :video="selectedVideo"
+      :reanalyzing="reanalyzingVideo"
       :finding-similar="findingSimilar"
       :deleting="deletingVideo"
+      @reanalyze="handleReanalyze"
       @find-similar="handleFindSimilar"
       @delete="handleDeleteVideo"
     />

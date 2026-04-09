@@ -312,6 +312,44 @@ def get_video_thumbnail(video_id: int, session: Session = Depends(get_session)) 
     return FileResponse(path=asset_path)
 
 
+@app.post(f"{settings.api_prefix}/videos/{{video_id}}/reanalyze", response_model=VideoRead)
+def reanalyze_video(
+    video_id: int,
+    session: Session = Depends(get_session),
+) -> VideoRead:
+    repository = GalleryRepository(session)
+    video = repository.get_video(video_id)
+    if video is None:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    video_path = Path(video.storage_path)
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail="Video asset not found")
+
+    analysis = VideoProcessingService(session, settings).analyze_video(
+        video_path,
+        asset_key=video.sha256,
+        source_kind=video.source_kind or "local_folder",
+    )
+
+    video.thumbnail_path = str(analysis.thumbnail_path) if analysis.thumbnail_path else None
+    video.caption = analysis.caption
+    video.ocr_text = analysis.ocr_text
+    video.people = json.dumps(analysis.people, ensure_ascii=False)
+    video.scene_tags = json.dumps(analysis.scene_tags, ensure_ascii=False)
+    video.object_tags = json.dumps(analysis.object_tags, ensure_ascii=False)
+    video.face_clusters = json.dumps(analysis.face_clusters, ensure_ascii=False)
+    video.face_count = analysis.face_count
+    video.vector_embedding = serialize_vector(analysis.vector_embedding)
+    video.duration_seconds = analysis.metadata.duration_seconds
+    video.frame_width = analysis.metadata.frame_width
+    video.frame_height = analysis.metadata.frame_height
+    video.fps = analysis.metadata.fps
+    video.sampled_frame_count = analysis.sampled_frame_count
+    video = repository.save_video(video)
+    return build_video_read(repository, video)
+
+
 @app.get(f"{settings.api_prefix}/videos/{{video_id}}/similar", response_model=VideoSearchResponse)
 def similar_videos(
     video_id: int,
