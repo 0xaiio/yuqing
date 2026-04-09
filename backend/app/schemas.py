@@ -17,6 +17,22 @@ def decode_json_list(value: str | None) -> list[str]:
     return []
 
 
+def decode_json_records(value: str | None) -> list[dict[str, object]]:
+    if not value:
+        return []
+    try:
+        data = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    records: list[dict[str, object]] = []
+    for item in data:
+        if isinstance(item, dict):
+            records.append(item)
+    return records
+
+
 class SourceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     kind: str = Field(pattern="^(local_folder|wechat_folder|qq_folder)$")
@@ -101,6 +117,14 @@ class PhotoRead(BaseModel):
     created_at: datetime
 
 
+class VideoPersonMomentRead(BaseModel):
+    person_name: str
+    timestamp_seconds: float
+    score: float
+    bbox: list[float] = Field(default_factory=list)
+    cluster_label: str | None = None
+
+
 class VideoRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -120,6 +144,7 @@ class VideoRead(BaseModel):
     object_tags: list[str] = Field(default_factory=list)
     face_clusters: list[str] = Field(default_factory=list)
     face_names: list[str] = Field(default_factory=list)
+    person_moments: list[VideoPersonMomentRead] = Field(default_factory=list)
     face_count: int = 0
     vector_ready: bool = False
     duration_seconds: float | None = None

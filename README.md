@@ -13,6 +13,7 @@
 - 视频人物识别已升级为更强检测器 + 加密抽帧 + 零命中密集重试 + 视频级多帧人物投票聚合
 - 已导入旧视频可直接在界面触发“重新分析视频”，无需删除后重新导入
 - 已提供“后台任务”页面，可一键发起“批量重分析全部视频”并追踪长任务进度
+- 若视频中检出特定人物，会保存若干典型检出时间点；在视频详情里点击时间点可自动跳转、暂停，并用识别框标出目标
 - 人物库、参考图上传、删除人物、删除人物部分参考图
 - 批量人物标注校正
 - 阈值可视化调参
@@ -66,6 +67,7 @@
 - 支持按视频样例搜视频
 - 支持按人物头像搜视频
 - 支持相似视频检索
+- 支持查看视频内特定人物的典型检出时间点，并一键跳转到对应时刻
 - 在视频页、人物页、人脸簇页里批量多选删除误匹配或低价值视频
 - 在整理工作台里筛出并清理低分辨率视频
 - 在整理工作台里筛出重复或高度重复视频，并优先删除更低分辨率的副本
@@ -285,6 +287,8 @@ VIDEO_MAX_SAMPLED_FRAMES=24
 VIDEO_FACE_RETRY_INTERVAL_SECONDS=0.5
 VIDEO_FACE_RETRY_MAX_FRAMES=48
 VIDEO_PERSON_VOTE_MIN_HITS=2
+VIDEO_PERSON_MOMENT_MAX_PER_PERSON=5
+VIDEO_PERSON_MOMENT_MIN_GAP_SECONDS=2.0
 VIDEO_EMBEDDING_MODEL_ID=google/siglip2-base-patch16-224
 VIDEO_EMBEDDING_DEVICE=cpu
 ```

@@ -8,6 +8,8 @@ from app.schemas import (
     PhotoRead,
     SourceRead,
     VideoRead,
+    VideoPersonMomentRead,
+    decode_json_records,
     decode_json_list,
 )
 
@@ -108,6 +110,17 @@ def build_video_read(repository: GalleryRepository, video: Video) -> VideoRead:
     ]
     face_names = list(dict.fromkeys(cluster_display_names + recognized_person_names))
     merged_people = list(dict.fromkeys(base_people + face_names))
+    person_moments = [
+        VideoPersonMomentRead(
+            person_name=str(item.get("person_name", "")),
+            timestamp_seconds=float(item.get("timestamp_seconds", 0.0)),
+            score=float(item.get("score", 0.0)),
+            bbox=[float(value) for value in item.get("bbox", []) if isinstance(value, (int, float))],
+            cluster_label=str(item.get("cluster_label")) if item.get("cluster_label") else None,
+        )
+        for item in decode_json_records(video.person_moments)
+        if item.get("person_name")
+    ]
 
     return VideoRead(
         id=video.id or 0,
@@ -126,6 +139,7 @@ def build_video_read(repository: GalleryRepository, video: Video) -> VideoRead:
         object_tags=object_tags,
         face_clusters=face_clusters,
         face_names=face_names,
+        person_moments=person_moments,
         face_count=video.face_count,
         vector_ready=bool(video.vector_embedding),
         duration_seconds=video.duration_seconds,

@@ -138,6 +138,7 @@ class ImportPipeline:
             scene_tags=json.dumps(analysis.scene_tags, ensure_ascii=False),
             object_tags=json.dumps(analysis.object_tags, ensure_ascii=False),
             face_clusters=json.dumps(analysis.face_clusters, ensure_ascii=False),
+            person_moments=json.dumps(analysis.person_moments, ensure_ascii=False),
             face_count=analysis.face_count,
             vector_embedding=serialize_vector(analysis.vector_embedding),
             duration_seconds=analysis.metadata.duration_seconds,

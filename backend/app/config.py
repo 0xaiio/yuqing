@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     video_face_retry_interval_seconds: float = 0.5
     video_face_retry_max_frames: int = 48
     video_person_vote_min_hits: int = 2
+    video_person_moment_max_per_person: int = 5
+    video_person_moment_min_gap_seconds: float = 2.0
     video_thumbnail_offset_ratio: float = 0.15
     video_embedding_model_id: str = "google/siglip2-base-patch16-224"
     video_embedding_device: str = "cpu"

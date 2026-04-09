@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 import shutil
 from uuid import uuid4
@@ -25,6 +25,21 @@ class VideoMetadata:
 
 
 @dataclass
+class SampledVideoFrame:
+    path: Path
+    timestamp_seconds: float
+
+
+@dataclass
+class VideoPersonMoment:
+    person_name: str
+    timestamp_seconds: float
+    score: float
+    bbox: list[float]
+    cluster_label: str | None = None
+
+
+@dataclass
 class VideoAnalysisResult:
     metadata: VideoMetadata
     thumbnail_path: Path | None
@@ -35,6 +50,7 @@ class VideoAnalysisResult:
     scene_tags: list[str]
     object_tags: list[str]
     face_clusters: list[str]
+    person_moments: list[dict[str, object]]
     face_count: int
     vector_embedding: list[float]
 
@@ -45,6 +61,7 @@ class VideoFaceSummary:
     names: list[str]
     face_count: int
     person_votes: dict[int, list[float]]
+    person_moments: dict[str, list[VideoPersonMoment]]
 
 
 class VideoProcessingService:
@@ -67,7 +84,7 @@ class VideoProcessingService:
         sampled_root.mkdir(parents=True, exist_ok=True)
 
         metadata = self._read_metadata(video_path)
-        thumbnail_path, frame_paths = self._extract_frames(
+        thumbnail_path, sampled_frames = self._extract_frames(
             video_path,
             metadata,
             work_root,
@@ -76,14 +93,15 @@ class VideoProcessingService:
             max_frames=self.settings.video_max_sampled_frames,
             write_thumbnail=True,
         )
+        frame_paths = [frame.path for frame in sampled_frames]
 
-        face_summary = self._analyze_face_frames(frame_paths)
+        face_summary = self._analyze_face_frames(sampled_frames)
         dense_frame_count = 0
         if self._should_retry_dense_face_scan(metadata, face_summary):
             dense_root = work_root / "_dense_faces"
             dense_root.mkdir(parents=True, exist_ok=True)
             try:
-                _, dense_frame_paths = self._extract_frames(
+                _, dense_frames = self._extract_frames(
                     video_path,
                     metadata,
                     work_root,
@@ -92,8 +110,8 @@ class VideoProcessingService:
                     max_frames=self.settings.video_face_retry_max_frames,
                     write_thumbnail=False,
                 )
-                dense_frame_count = len(dense_frame_paths)
-                self._merge_face_summary(face_summary, self._analyze_face_frames(dense_frame_paths))
+                dense_frame_count = len(dense_frames)
+                self._merge_face_summary(face_summary, self._analyze_face_frames(dense_frames))
             finally:
                 shutil.rmtree(dense_root, ignore_errors=True)
 
@@ -129,18 +147,20 @@ class VideoProcessingService:
             object_tags=object_tags,
             asset_name=video_path.stem,
         )
+        person_moments = [asdict(moment) for moment in self._select_representative_moments(face_summary.person_moments)]
 
         shutil.rmtree(sampled_root, ignore_errors=True)
         return VideoAnalysisResult(
             metadata=metadata,
             thumbnail_path=thumbnail_path,
-            sampled_frame_count=len(frame_paths) + dense_frame_count,
+            sampled_frame_count=len(sampled_frames) + dense_frame_count,
             caption=vision_analysis.caption,
             ocr_text=vision_analysis.ocr_text,
             people=people,
             scene_tags=scene_tags,
             object_tags=object_tags,
             face_clusters=face_summary.labels,
+            person_moments=person_moments,
             face_count=face_summary.face_count,
             vector_embedding=vector_embedding,
         )
@@ -151,7 +171,7 @@ class VideoProcessingService:
         sampled_root.mkdir(parents=True, exist_ok=True)
         try:
             metadata = self._read_metadata(video_path)
-            _, frame_paths = self._extract_frames(
+            _, sampled_frames = self._extract_frames(
                 video_path,
                 metadata,
                 temp_root,
@@ -160,35 +180,39 @@ class VideoProcessingService:
                 max_frames=self.settings.video_max_sampled_frames,
                 write_thumbnail=False,
             )
-            return self.video_embeddings.embed_video_example(frame_paths)
+            return self.video_embeddings.embed_video_example([frame.path for frame in sampled_frames])
         finally:
             shutil.rmtree(temp_root, ignore_errors=True)
 
-    def _analyze_face_frames(self, frame_paths: list[Path]) -> VideoFaceSummary:
+    def _analyze_face_frames(self, frames: list[SampledVideoFrame]) -> VideoFaceSummary:
         labels: list[str] = []
         names: list[str] = []
         face_count = 0
         person_votes: dict[int, list[float]] = {}
+        person_moments: dict[str, list[VideoPersonMoment]] = {}
 
         vote_floor = max(0.36, self.settings.person_recognition_similarity_threshold - 0.08)
         ambiguity_margin = 0.02
 
-        for frame_path in frame_paths:
-            embeddings = self.face_clusterer.extract_face_embeddings(frame_path)
-            if not embeddings:
+        for frame in frames:
+            detected_faces = self.face_clusterer.engine.extract_faces(
+                frame.path,
+                max_faces=self.settings.face_detection_max_faces,
+            )
+            if not detected_faces:
                 continue
 
-            result = self.face_clusterer.analyze_embeddings(embeddings, example_photo_id=None)
-            face_count += result.face_count
-            for label in result.labels:
-                if label not in labels:
-                    labels.append(label)
-            for name in result.names:
-                if name not in names:
-                    names.append(name)
+            face_count += len(detected_faces)
+            for detected_face in detected_faces:
+                result = self.face_clusterer.analyze_embeddings([detected_face.embedding], example_photo_id=None)
+                for label in result.labels:
+                    if label not in labels:
+                        labels.append(label)
+                for name in result.names:
+                    if name not in names:
+                        names.append(name)
 
-            for embedding in embeddings:
-                ranked = self.face_clusterer.rank_person_profiles(embedding, limit=2)
+                ranked = self.face_clusterer.rank_person_profiles(detected_face.embedding, limit=2)
                 if not ranked:
                     continue
                 best_person, best_score = ranked[0]
@@ -197,13 +221,32 @@ class VideoProcessingService:
                     continue
                 if second_score > 0 and (best_score - second_score) < ambiguity_margin:
                     continue
-                person_votes.setdefault(best_person.id or 0, []).append(best_score)
+
+                person_id = best_person.id or 0
+                person_votes.setdefault(person_id, []).append(best_score)
+                if best_person.name not in names:
+                    names.append(best_person.name)
+
+                person_moments.setdefault(best_person.name, []).append(
+                    VideoPersonMoment(
+                        person_name=best_person.name,
+                        timestamp_seconds=frame.timestamp_seconds,
+                        score=best_score,
+                        bbox=self._normalize_bbox(
+                            detected_face.bbox,
+                            detected_face.image_width,
+                            detected_face.image_height,
+                        ),
+                        cluster_label=result.labels[0] if result.labels else None,
+                    )
+                )
 
         return VideoFaceSummary(
             labels=labels,
             names=names,
             face_count=face_count,
             person_votes=person_votes,
+            person_moments=person_moments,
         )
 
     def _resolve_video_people(self, person_votes: dict[int, list[float]]) -> list[str]:
@@ -241,6 +284,9 @@ class VideoProcessingService:
         for person_id, scores in source.person_votes.items():
             existing = target.person_votes.setdefault(person_id, [])
             existing.extend(scores)
+        for person_name, moments in source.person_moments.items():
+            existing = target.person_moments.setdefault(person_name, [])
+            existing.extend(moments)
 
     def _should_retry_dense_face_scan(self, metadata: VideoMetadata, summary: VideoFaceSummary) -> bool:
         if metadata.duration_seconds <= 2:
@@ -252,6 +298,27 @@ class VideoProcessingService:
         if summary.face_count <= 2 and metadata.duration_seconds >= 12:
             return True
         return False
+
+    def _select_representative_moments(
+        self,
+        person_moments: dict[str, list[VideoPersonMoment]],
+    ) -> list[VideoPersonMoment]:
+        selected: list[VideoPersonMoment] = []
+        min_gap = max(0.5, float(self.settings.video_person_moment_min_gap_seconds))
+        max_per_person = max(1, int(self.settings.video_person_moment_max_per_person))
+
+        for person_name, moments in person_moments.items():
+            chosen: list[VideoPersonMoment] = []
+            for moment in sorted(moments, key=lambda item: item.score, reverse=True):
+                if any(abs(moment.timestamp_seconds - item.timestamp_seconds) < min_gap for item in chosen):
+                    continue
+                chosen.append(moment)
+                if len(chosen) >= max_per_person:
+                    break
+            chosen.sort(key=lambda item: item.timestamp_seconds)
+            selected.extend(chosen)
+
+        return selected
 
     def _read_metadata(self, video_path: Path) -> VideoMetadata:
         capture = cv2.VideoCapture(str(video_path))
@@ -282,8 +349,8 @@ class VideoProcessingService:
         interval_seconds: float,
         max_frames: int,
         write_thumbnail: bool,
-    ) -> tuple[Path | None, list[Path]]:
-        frame_paths: list[Path] = []
+    ) -> tuple[Path | None, list[SampledVideoFrame]]:
+        frames: list[SampledVideoFrame] = []
         timestamps = self._build_sample_timestamps(
             metadata,
             interval_seconds=interval_seconds,
@@ -293,20 +360,20 @@ class VideoProcessingService:
         for index, timestamp in enumerate(timestamps):
             target_path = sampled_root / f"frame_{index:03d}.jpg"
             if self._capture_frame(video_path, timestamp, target_path):
-                frame_paths.append(target_path)
+                frames.append(SampledVideoFrame(path=target_path, timestamp_seconds=timestamp))
 
-        if not frame_paths:
+        if not frames:
             fallback_path = sampled_root / "frame_000.jpg"
             if self._capture_frame(video_path, 0.0, fallback_path):
-                frame_paths.append(fallback_path)
+                frames.append(SampledVideoFrame(path=fallback_path, timestamp_seconds=0.0))
 
         thumbnail_path: Path | None = None
-        if write_thumbnail and frame_paths:
+        if write_thumbnail and frames:
             thumbnail_path = work_root / "thumbnail.jpg"
             thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(frame_paths[0], thumbnail_path)
+            shutil.copy2(frames[0].path, thumbnail_path)
 
-        return thumbnail_path, frame_paths
+        return thumbnail_path, frames
 
     def _build_sample_timestamps(
         self,
@@ -354,3 +421,17 @@ class VideoProcessingService:
             return False
         target_path.parent.mkdir(parents=True, exist_ok=True)
         return bool(cv2.imwrite(str(target_path), frame))
+
+    @staticmethod
+    def _normalize_bbox(bbox: list[float], image_width: int, image_height: int) -> list[float]:
+        if image_width <= 0 or image_height <= 0 or len(bbox) < 4:
+            return []
+        x1, y1, x2, y2 = bbox[:4]
+        width = max(float(x2) - float(x1), 0.0)
+        height = max(float(y2) - float(y1), 0.0)
+        return [
+            max(0.0, min(float(x1) / image_width, 1.0)),
+            max(0.0, min(float(y1) / image_height, 1.0)),
+            max(0.0, min(width / image_width, 1.0)),
+            max(0.0, min(height / image_height, 1.0)),
+        ]

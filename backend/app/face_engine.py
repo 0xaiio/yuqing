@@ -35,6 +35,8 @@ class DetectedFace:
     landmarks: list[list[float]]
     score: float
     embedding: list[float]
+    image_width: int
+    image_height: int
 
 
 class DeepFaceEngine:
@@ -58,6 +60,7 @@ class DeepFaceEngine:
         if detections.size == 0 or landmarks is None or len(landmarks) == 0:
             return []
 
+        image_height, image_width = image.shape[:2]
         face_images: list[np.ndarray] = []
         metadata: list[tuple[list[float], list[list[float]], float]] = []
         for detection, face_landmarks in zip(detections, landmarks):
@@ -83,6 +86,8 @@ class DeepFaceEngine:
                     landmarks=face_landmarks,
                     score=score,
                     embedding=embedding,
+                    image_width=image_width,
+                    image_height=image_height,
                 )
             )
         return results

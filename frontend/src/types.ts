@@ -106,6 +106,7 @@ export interface Video {
   object_tags: string[]
   face_clusters: string[]
   face_names: string[]
+  person_moments: VideoPersonMoment[]
   face_count: number
   vector_ready: boolean
   duration_seconds: number | null
@@ -115,6 +116,14 @@ export interface Video {
   sampled_frame_count: number
   taken_at: string | null
   created_at: string
+}
+
+export interface VideoPersonMoment {
+  person_name: string
+  timestamp_seconds: number
+  score: number
+  bbox: number[]
+  cluster_label: string | null
 }
 
 export interface SearchHit {
